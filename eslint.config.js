@@ -18,6 +18,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
     files: ["src/client/**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,

@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "youtube-dialogue-studio",
+  "account_id": "17beee87c9ca34e8cfd85e9a554f3343",
   "compatibility_date": "2026-08-08",
   "main": "./src/worker/index.ts",
   "assets": {

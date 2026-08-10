@@ -3,7 +3,9 @@
 把带字幕的 YouTube 视频转换为结构清晰的中文对话文章。主文章由 Gemini 真实流式生成，完成后可以基于服务端保存的上下文，为任意章节生成固定格式的 5W1H 总结。
 
 > GitHub：<https://github.com/jay88159/youtube-dialogue-studio>  
-> 在线演示：首次 Cloudflare 部署后回填
+> 在线演示：<https://youtube-dialogue-studio.delightful-lock.workers.dev>
+
+![逐章生产环境界面](docs/images/product-workspace.png)
 
 ## 产品能力
 
@@ -53,7 +55,7 @@ flowchart LR
 
 选择 Durable Object 的原因不是“为了用 Cloudflare 功能”，而是题目需要生成结束后立即读取同一次会话的字幕、文章和章节。一个生成 ID 对应一个对象，天然提供强一致、隔离的上下文；24 小时 Alarm 到期后执行 `deleteAll()`。D1 的跨会话查询并无需求，KV 的最终一致性则会制造刚生成完却读不到章节的竞态。
 
-更完整的状态机、安全边界与取舍见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，两天实施拆解见 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)。
+更完整的状态机、安全边界与取舍见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，两天实施拆解见 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)，真实外部服务与浏览器证据见 [docs/VERIFICATION.md](docs/VERIFICATION.md)。
 
 ## 如何获取和处理 YouTube 字幕
 
@@ -102,7 +104,7 @@ POST /v1beta/models/{model}:streamGenerateContent?alt=sse
 - `src/shared/ndjson.ts`
 - `src/client/hooks/use-generation.ts`
 
-Gemini 文本流与结构化输出的接口形态参考官方 [文本生成](https://ai.google.dev/gemini-api/docs/generate-content/text-generation) 和 [结构化输出](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) 文档。模型名通过 `GEMINI_MODEL` 配置，不写死在业务模块中。
+Gemini 文本流与结构化输出的接口形态参考官方 [文本生成](https://ai.google.dev/gemini-api/docs/generate-content/text-generation) 和 [结构化输出](https://ai.google.dev/gemini-api/docs/structured-output) 文档。模型名通过 `GEMINI_MODEL` 配置，不写死在业务模块中。Gemini 3.5 Flash 请求使用 `thinkingLevel: "low"`，并遵循该代模型的建议，不覆盖 temperature、topP 或 topK；这样把免费额度优先用于正文，同时避免过时的采样参数造成不可预测行为。
 
 ## 用户生成要求如何影响结果
 
@@ -154,6 +156,7 @@ pnpm typecheck         # TypeScript strict mode
 pnpm test              # 共享、字幕、Gemini、React 单元测试
 pnpm test:integration  # workerd + Durable Object 集成测试
 pnpm test:e2e          # Chromium 桌面与移动端完整交互
+pnpm test:smoke        # 真实生产 Gemini + 5W1H（消耗免费额度）
 pnpm build             # Cloudflare Vite 生产构建
 pnpm check             # 依次执行以上全部检查
 ```
@@ -206,6 +209,7 @@ tests/integration       workerd 内的 Worker 集成测试
 tests/e2e               Chromium 桌面与移动用户路径
 docs/ARCHITECTURE.md     架构、状态机、安全与取舍
 docs/IMPLEMENTATION_PLAN.md 两天任务拆解与完成证据
+docs/VERIFICATION.md     真实 Gemini、生产流式与浏览器证据
 CLAUDE.md                仓库级 AI coding 约束
 ```
 
