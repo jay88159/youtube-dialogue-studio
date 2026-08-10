@@ -6,6 +6,7 @@ import type {
   ArticleSection,
   ChapterDescriptor,
   GenerationEvent,
+  TranscriptSource,
 } from "@/shared/contracts";
 import { encodeNdjson } from "@/shared/ndjson";
 
@@ -37,7 +38,7 @@ interface SessionMeta {
   status: SessionStatus;
   model: string;
   promptVersion: "article-v1";
-  transcriptSource?: "direct" | "proxy" | "fixture";
+  transcriptSource?: TranscriptSource;
   createdAt: number;
   expiresAt: number;
   errorCode?: string;
@@ -247,6 +248,13 @@ export class GenerationSession extends DurableObject<AppEnv> {
 
   private createTranscriptResolver(): TranscriptResolver {
     let proxyTransport: HttpTransport | undefined;
+    const apiKey = this.bindings.GEMINI_API_KEY;
+    const gemini = apiKey
+      ? new GeminiClient({
+          apiKey,
+          model: this.bindings.GEMINI_MODEL || "gemini-3.5-flash",
+        })
+      : undefined;
     const {
       WEBSHARE_PROXY_HOST: hostname,
       WEBSHARE_PROXY_PORT: port,
@@ -268,6 +276,9 @@ export class GenerationSession extends DurableObject<AppEnv> {
       directTransport: new FetchTransport(),
       proxyTransport,
       fixtures: new Map([[fixture.videoId, fixture]]),
+      videoFallback: gemini
+        ? { fetch: (videoId) => gemini.extractVideoTranscript(videoId) }
+        : undefined,
     });
   }
 

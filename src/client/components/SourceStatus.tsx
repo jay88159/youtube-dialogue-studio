@@ -7,6 +7,7 @@ const sourceLabels: Record<TranscriptSource, string> = {
   direct: "YouTube 实时字幕",
   proxy: "代理字幕",
   fixture: "演示字幕",
+  gemini: "AI 视频转录",
 };
 
 interface SourceStatusProps {
@@ -22,7 +23,7 @@ export function SourceStatus({ phase, source, segmentCount }: SourceStatusProps)
   const statusLabel = phase === "starting"
     ? "正在建立生成会话"
     : phase === "transcript"
-      ? "正在读取字幕"
+      ? "正在读取字幕或视频内容"
       : phase === "generating"
         ? "文章生成中"
         : phase === "completed"
@@ -48,6 +49,9 @@ export function SourceStatus({ phase, source, segmentCount }: SourceStatusProps)
       )}
       {source === "fixture" && (
         <p className="fixture-note">实时字幕不可用，当前使用内置校订字幕，结果仅用于演示。</p>
+      )}
+      {source === "gemini" && (
+        <p className="fixture-note">实时字幕不可用，当前由 Gemini 从公开视频提取；这不是 YouTube 原始字幕，可能存在转录误差。</p>
       )}
     </div>
   );

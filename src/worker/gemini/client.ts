@@ -1,13 +1,16 @@
 import type { FiveWOneH } from "@/shared/contracts";
+import type { TranscriptDocument } from "@/worker/transcript/types";
 
 import { fiveWOneHSchema } from "./five-w-one-h";
 import {
   buildArticleRequest,
   buildSummaryRequest,
+  buildVideoTranscriptRequest,
   type ArticlePromptInput,
   type SummaryPromptInput,
 } from "./prompts";
 import { parseGeminiSse } from "./sse";
+import { extractedVideoTranscriptSchema } from "./video-transcript";
 
 interface GeminiClientOptions {
   apiKey: string;
@@ -41,6 +44,23 @@ export class GeminiClient {
     // Workers runtime methods must keep their global receiver. Wrapping fetch
     // also keeps the client injectable in unit tests without binding surprises.
     this.fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
+  }
+
+  async extractVideoTranscript(videoId: string): Promise<TranscriptDocument> {
+    const response = await this.request("generateContent", buildVideoTranscriptRequest(videoId));
+    const payload = await response.json() as GenerateContentResponse;
+    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
+    if (!text) throw new GeminiResponseError("Gemini 未返回视频转录内容", 502);
+
+    try {
+      const transcript = extractedVideoTranscriptSchema.parse(JSON.parse(text));
+      return { videoId, ...transcript };
+    } catch (error) {
+      throw new GeminiResponseError(
+        `Gemini 视频转录不符合固定格式：${error instanceof Error ? error.message : "未知错误"}`,
+        502,
+      );
+    }
   }
 
   async *streamArticle(

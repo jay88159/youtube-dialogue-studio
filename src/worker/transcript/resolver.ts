@@ -3,6 +3,7 @@ import type {
   ResolvedTranscript,
   TranscriptFixture,
   TranscriptProvider,
+  VideoTranscriptFallback,
 } from "./types";
 import { CaptionsNotFoundError } from "./youtube";
 
@@ -11,6 +12,7 @@ interface TranscriptResolverOptions {
   directTransport: HttpTransport;
   proxyTransport?: HttpTransport;
   fixtures: Map<string, TranscriptFixture>;
+  videoFallback?: VideoTranscriptFallback;
 }
 
 export class TranscriptResolver {
@@ -37,6 +39,11 @@ export class TranscriptResolver {
 
     const fixture = this.options.fixtures.get(videoId);
     if (fixture) return { source: "fixture", transcript: fixture };
+
+    if (this.options.videoFallback) {
+      const transcript = await this.options.videoFallback.fetch(videoId);
+      return { source: "gemini", transcript };
+    }
 
     throw liveError;
   }

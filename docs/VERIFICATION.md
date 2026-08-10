@@ -7,7 +7,7 @@
 
 ## 1. 本地与 CI
 
-`pnpm check` 覆盖 ESLint、TypeScript strict、32 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
+`pnpm check` 覆盖 ESLint、TypeScript strict、35 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
 
 公开仓库的 GitHub Actions 使用相同的 `pnpm check`；CI 不注入任何 Secret。
 
@@ -59,3 +59,22 @@ BASE_URL=https://example.workers.dev pnpm test:smoke
 ```
 
 脚本只输出事件数量与耗时，不输出文章、提示词或 Secret。每次执行会真实消耗 Gemini 免费额度，因此不属于默认 `pnpm check`。
+
+## 7. YouTube 验证码与代理复盘
+
+使用用户提供的 10 个 Webshare 免费节点做了不回显凭据的目标探测：
+
+- 10/10 节点通过普通 HTTP CONNECT 访问 YouTube 时连接中止；
+- 10/10 节点通过 SOCKS5 从本机访问同一 YouTube 页面时返回 HTTP 200；
+- 选择第 1、2、10 个节点分别配置到 Cloudflare 做代表性复测，均未取得实时字幕；其中第 1 个节点对无 Fixture 视频暴露出 `TLS Handshake Failed`。这证明本机可用不能直接外推为 Worker 运行时可用。
+
+因此生产环境没有把这组节点保留为必经路径。代理实现仍是 best-effort 可选层，最终可用性由目标站点、代理节点和 Cloudflare TCP/TLS 组合决定；不能因为代理文件格式正确就宣称验证码问题已解决。
+
+为保证公开演示对其他视频也有可恢复路径，系统增加了 Gemini YouTube URL Preview 最终兜底，并明确标记为「AI 视频转录」。真实生产请求使用非 Fixture 视频 `9hE5-98ZeCg` 验证得到：
+
+- `transcript.ready.source = gemini`；
+- 15 个结构化时间片段；
+- 文章生成完成并形成 2 个章节；
+- 后续章节 5W1H 使用空请求体，返回 HTTP 200 和 6 个非空固定字段。
+
+这条路径不冒充 YouTube 原始字幕。官方当前说明 YouTube URL Preview 免费提供，免费层每天最多处理 8 小时公开视频，但 Preview 价格和限制可能变化。

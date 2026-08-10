@@ -29,3 +29,7 @@ export interface HttpTransport {
 export interface TranscriptProvider {
   fetch(videoId: string, transport: HttpTransport): Promise<TranscriptDocument>;
 }
+
+export interface VideoTranscriptFallback {
+  fetch(videoId: string): Promise<TranscriptDocument>;
+}

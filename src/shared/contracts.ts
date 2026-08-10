@@ -1,4 +1,4 @@
-export type TranscriptSource = "direct" | "proxy" | "fixture";
+export type TranscriptSource = "direct" | "proxy" | "fixture" | "gemini";
 
 export interface ChapterDescriptor {
   id: string;

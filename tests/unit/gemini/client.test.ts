@@ -11,6 +11,46 @@ const transcript: TranscriptDocument = {
 };
 
 describe("GeminiClient", () => {
+  it("extracts a structured transcript from a public YouTube video URL", async () => {
+    let request: Request | undefined;
+    const fetcher: typeof fetch = async (input, init) => {
+      request = new Request(input, init);
+      return Response.json({
+        candidates: [{
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                title: "Public demo",
+                language: "en",
+                segments: [
+                  { startMs: 0, durationMs: 2400, text: "The demo begins." },
+                  { startMs: 2400, durationMs: 3100, text: "A second point follows." },
+                ],
+              }),
+            }],
+          },
+        }],
+      });
+    };
+    const client = new GeminiClient({ apiKey: "test-key", model: "gemini-test", fetcher });
+
+    await expect(client.extractVideoTranscript("9hE5-98ZeCg")).resolves.toEqual({
+      videoId: "9hE5-98ZeCg",
+      title: "Public demo",
+      language: "en",
+      segments: [
+        { startMs: 0, durationMs: 2400, text: "The demo begins." },
+        { startMs: 2400, durationMs: 3100, text: "A second point follows." },
+      ],
+    });
+
+    const body = await request!.json() as {
+      contents: Array<{ parts: Array<{ fileData?: { fileUri?: string } }> }>;
+    };
+    expect(body.contents[0].parts[0].fileData?.fileUri)
+      .toBe("https://www.youtube.com/watch?v=9hE5-98ZeCg");
+  });
+
   it("streams article deltas from the Gemini SSE endpoint", async () => {
     const requests: Request[] = [];
     const fetcher: typeof fetch = async (input, init) => {

@@ -1,6 +1,7 @@
 import { connect } from "cloudflare:sockets";
 
-import { buildConnectRequest, parseRawHttpResponse } from "./http-response";
+import { parseRawHttpResponse } from "./http-response";
+import { establishSocks5Tunnel } from "./socks5";
 import type { HttpTransport } from "./types";
 
 interface ProxyConfiguration {
@@ -11,50 +12,6 @@ interface ProxyConfiguration {
 }
 
 const MAX_PROXY_RESPONSE_BYTES = 2 * 1024 * 1024;
-
-function findHeaderEnd(bytes: Uint8Array): number {
-  for (let index = 0; index <= bytes.length - 4; index += 1) {
-    if (
-      bytes[index] === 13
-      && bytes[index + 1] === 10
-      && bytes[index + 2] === 13
-      && bytes[index + 3] === 10
-    ) return index + 4;
-  }
-  return -1;
-}
-
-async function readConnectResponse(stream: ReadableStream<Uint8Array>): Promise<number> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let length = 0;
-
-  try {
-    while (length < 16 * 1024) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      length += value.length;
-      const combined = new Uint8Array(length);
-      let offset = 0;
-      for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
-      }
-      const end = findHeaderEnd(combined);
-      if (end >= 0) {
-        const statusLine = new TextDecoder().decode(combined.slice(0, end)).split("\r\n", 1)[0];
-        const match = /^HTTP\/\d(?:\.\d)?\s+(\d{3})/.exec(statusLine);
-        if (!match) throw new Error("代理 CONNECT 状态行非法");
-        return Number(match[1]);
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  throw new Error("代理 CONNECT 响应不完整");
-}
 
 async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const reader = stream.getReader();
@@ -99,19 +56,20 @@ export class TcpProxyTransport implements HttpTransport {
     );
     await socket.opened;
 
-    const connectWriter = socket.writable.getWriter();
-    await connectWriter.write(new TextEncoder().encode(buildConnectRequest(
-      url.hostname,
-      443,
-      this.proxy.username,
-      this.proxy.password,
-    )));
-    connectWriter.releaseLock();
-
-    const connectStatus = await readConnectResponse(socket.readable as ReadableStream<Uint8Array>);
-    if (connectStatus !== 200) {
+    try {
+      await establishSocks5Tunnel(
+        socket.readable as ReadableStream<Uint8Array>,
+        socket.writable as WritableStream<Uint8Array>,
+        {
+          hostname: url.hostname,
+          port: 443,
+          username: this.proxy.username,
+          password: this.proxy.password,
+        },
+      );
+    } catch (error) {
       await socket.close();
-      throw new Error(`代理 CONNECT 失败：${connectStatus}`);
+      throw error;
     }
 
     const secureSocket = socket.startTls({ expectedServerHostname: url.hostname });

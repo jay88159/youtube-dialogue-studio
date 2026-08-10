@@ -101,4 +101,25 @@ describe("TranscriptResolver", () => {
       YouTubeVerificationError,
     );
   });
+
+  it("uses an AI video transcript only after live paths and fixtures are unavailable", async () => {
+    const resolver = new TranscriptResolver({
+      provider: {
+        fetch: async () => {
+          throw new YouTubeVerificationError();
+        },
+      },
+      directTransport,
+      proxyTransport,
+      fixtures: new Map(),
+      videoFallback: {
+        fetch: async (videoId: string) => ({ ...document, videoId }),
+      },
+    });
+
+    await expect(resolver.resolve("9hE5-98ZeCg")).resolves.toEqual({
+      source: "gemini",
+      transcript: { ...document, videoId: "9hE5-98ZeCg" },
+    });
+  });
 });

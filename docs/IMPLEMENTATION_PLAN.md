@@ -14,6 +14,7 @@
 - 主文章必须真实流式输出并实时展示。
 - 5W1H 请求不得由前端重新提交字幕、文章或章节正文。
 - 参考视频 Fixture 必须在界面标明为演示字幕。
+- Gemini 视频兜底必须标明为 AI 转录，不得描述为 YouTube 原始字幕。
 - Secret 不得进入 Git、日志或浏览器响应。
 - 分支和提交信息不得包含 `codex`。
 
@@ -49,8 +50,9 @@
 - [x] 写 caption track 提取、json3 标准化、验证码识别和三级回退失败测试。
 - [x] 运行目标测试并确认真实行为缺失。
 - [x] 实现常量主机的直连传输和 YouTube 字幕解析。
-- [x] 实现 `cloudflare:sockets` CONNECT、TLS 升级和 HTTP/1.1 响应解析。
+- [x] 实现 `cloudflare:sockets` SOCKS5 握手、TLS 升级和 HTTP/1.1 响应解析。
 - [x] 加入带来源元数据的参考字幕夹具。
+- [x] 加入 Gemini YouTube URL 结构化转录最终兜底，并明确标记 AI 来源。
 - [x] 运行字幕测试，确认每条回退路径通过。
 - [x] 提交 `feat: resolve youtube transcripts with honest fallbacks`。
 

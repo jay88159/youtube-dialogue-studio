@@ -5,13 +5,13 @@
 本项目把带字幕的 YouTube 视频转换成中文对话文章。核心验收链路是：
 
 1. 用户提交合法 YouTube 链接和可选自然语言要求。
-2. 服务端获取字幕，并明确标记直连、代理或演示夹具来源。
+2. 服务端获取内容，并明确标记直连字幕、代理字幕、演示夹具或 AI 视频转录来源。
 3. Gemini 生成的 Markdown 按增量返回，浏览器在生成结束前已经显示正文。
 4. 完整文章按二级标题形成章节，每章可以请求固定六字段的 5W1H。
 5. 5W1H 请求只携带生成 ID 和章节 ID，字幕与文章上下文由服务端读取。
 6. Cloudflare Workers 免费计划可以完成构建、部署和运行。
 
-公开演示必须优先保证参考视频可用。YouTube 直连和 Webshare 代理是实时来源，参考视频夹具是明确标识的可恢复路径。页面不得把夹具伪装成实时字幕。
+公开演示必须优先保证参考视频可用。YouTube 直连和 Webshare 代理是实时字幕来源，参考视频夹具是明确标识的可恢复路径；其他公开视频可进入 Gemini 转录兜底。页面不得把夹具或 AI 转录伪装成原始字幕。
 
 ## 2. 范围
 
@@ -19,8 +19,9 @@
 
 - React 单页界面和完整的空闲、校验、字幕获取、生成、完成、错误状态。
 - YouTube URL 解析、字幕轨道提取和字幕标准化。
-- Webshare HTTP CONNECT 代理传输，使用 Cloudflare TCP Socket。
+- Webshare SOCKS5 代理传输，使用 Cloudflare TCP Socket。
 - 参考视频字幕夹具。
+- Gemini YouTube URL 结构化转录最终兜底，并在页面明确标记 AI 来源。
 - Gemini 主文章流式生成。
 - Durable Object 服务端上下文。
 - 章节级结构化 5W1H。
@@ -37,8 +38,9 @@ flowchart LR
     API -->|generationId| Session[GenerationSession Durable Object]
     Session --> Transcript[Transcript Resolver]
     Transcript --> Direct[YouTube 直连]
-    Transcript --> Proxy[Webshare TCP CONNECT]
+    Transcript --> Proxy[Webshare SOCKS5 over TCP]
     Transcript --> Fixture[参考视频夹具]
+    Transcript --> Video[Gemini YouTube URL 转录]
     Session --> Gemini[Gemini REST Gateway]
     Gemini -->|Markdown 增量| Session
     Session -->|article.delta| Browser
@@ -87,9 +89,10 @@ generating -> cancelled
 顺序固定为：
 
 1. 通过 Worker Fetch 读取 YouTube watch 页面和 caption track。
-2. 遇到验证页、403、429 或直连网络错误时，若配置了 Webshare 凭据，则通过 TCP CONNECT 重试。
+2. 遇到验证页、403、429 或直连网络错误时，若配置了 Webshare 凭据，则通过 TCP Socket 完成 SOCKS5 认证与目标隧道握手后重试。
 3. 若视频 ID 等于参考视频且实时路径失败，则读取版本化夹具。
-4. 其他视频返回可操作错误，不生成虚构字幕。
+4. 其他公开视频调用 Gemini YouTube URL Preview，按 JSON Schema 提取时间片段，并标记为 `gemini` 来源。
+5. 视频不可公开读取、超出免费限制或结构化转录非法时返回可操作错误，不生成虚构字幕。
 
 传输层和字幕解析层分离。`HttpTransport` 负责字节传输，`YouTubeTranscriptProvider` 负责页面、轨道和字幕语义。代理实现不会进入文章生成模块。
 
@@ -99,6 +102,7 @@ generating -> cancelled
 
 ```ts
 interface GeminiGateway {
+  extractVideoTranscript(videoId: string): Promise<TranscriptDocument>;
   streamArticle(input: ArticlePromptInput, signal?: AbortSignal): AsyncIterable<string>;
   summarizeChapter(input: SummaryPromptInput): Promise<FiveWOneH>;
 }
@@ -113,7 +117,7 @@ interface GeminiGateway {
 ```ts
 type GenerationEvent =
   | { type: "generation.created"; generationId: string }
-  | { type: "transcript.ready"; source: "direct" | "proxy" | "fixture"; segmentCount: number }
+  | { type: "transcript.ready"; source: "direct" | "proxy" | "fixture" | "gemini"; segmentCount: number }
   | { type: "article.delta"; text: string }
   | { type: "article.completed"; chapters: Chapter[] }
   | { type: "generation.failed"; error: ApiError };
@@ -150,13 +154,14 @@ NDJSON 让增量文本、元数据和错误共享一个顺序流。前端解析�
 - 不使用付费数据库和队列。
 - 网络等待不计入主动 CPU；字幕解析保持线性扫描。
 - 字幕上限为 500 KiB，文章上限为 160 KiB，低于 Durable Object 单值限制并控制 Gemini 免费额度消耗。
+- Gemini YouTube URL Preview 只作为最终兜底；免费层每天最多处理 8 小时公开视频，且 Preview 额度未来可能变化。
 - 会话 24 小时后删除，避免长期占用 5 GB 免费存储。
 
 ## 9. 可观测性
 
 日志只记录 `requestId`、`generationId`、`videoId`、阶段、字幕来源、耗时、模型和错误码。日志不得记录 Gemini Key、代理凭据、完整字幕、文章或用户提示词。
 
-浏览器显示字幕来源和失败阶段。面试评审可以区分实时能力、代理能力和演示夹具。
+浏览器显示字幕来源和失败阶段。面试评审可以区分实时字幕、代理字幕、演示夹具和 AI 视频转录。
 
 ## 10. 验证策略
 

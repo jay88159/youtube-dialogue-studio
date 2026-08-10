@@ -14,7 +14,8 @@
 - 文章通过 POST 响应中的 NDJSON 逐段抵达，生成未结束时正文已经可读。
 - 每个二级章节都有 5W1H 操作，固定渲染 Who、What、When、Where、Why、How。
 - 5W1H 的浏览器请求没有请求体；完整字幕、文章结构与章节正文从 Durable Object 读取。
-- YouTube 直连失败时可经 Webshare HTTP CONNECT 代理重试；参考视频另有明确标记的内置字幕，保证演示可复现。
+- YouTube 直连失败时可经 Webshare SOCKS5 代理重试；参考视频另有明确标记的内置字幕，保证演示可复现。
+- 非参考视频的实时字幕和代理都失败时，可由 Gemini 直接读取公开 YouTube URL 并生成结构化转录；页面明确标记为「AI 视频转录」，不冒充原始字幕。
 - 一个 Cloudflare Worker 同时承载静态页面、API 和 SQLite-backed Durable Object，不依赖付费数据库。
 
 ## 快速体验
@@ -44,8 +45,9 @@ flowchart LR
     API --> Session["每次生成一个 Durable Object"]
     Session --> Resolver["字幕 Resolver"]
     Resolver --> Direct["YouTube Fetch"]
-    Resolver --> Proxy["Webshare TCP CONNECT"]
+    Resolver --> Proxy["Webshare SOCKS5 over TCP"]
     Resolver --> Fixture["参考字幕 Fixture"]
+    Resolver --> Video["Gemini YouTube URL 转录"]
     Session -->|"SSE"| Gemini["Gemini API"]
     Session -->|"article.delta"| Browser
     Browser -->|"generationId + chapterId"| API
@@ -63,9 +65,10 @@ flowchart LR
 
 1. `FetchTransport` 请求由代码构造的 YouTube watch URL。
 2. `YouTubeTranscriptProvider` 从 `ytInitialPlayerResponse` 读取 caption track，优先人工字幕，再选自动字幕；随后请求 JSON3 timedtext 并规范化时间段与文本。
-3. 如果 watch 页面出现 `LOGIN_REQUIRED`、验证页面、403、429 或网络问题，并且配置了 Webshare，则 `TcpProxyTransport` 使用 Cloudflare `connect()` 建立 TCP，发出 HTTP `CONNECT`，再通过 `startTls()` 访问 YouTube。
+3. 如果 watch 页面出现 `LOGIN_REQUIRED`、验证页面、403、429 或网络问题，并且配置了 Webshare，则 `TcpProxyTransport` 使用 Cloudflare `connect()` 建立 TCP，完成 SOCKS5 用户名密码认证和目标隧道握手，再通过 `startTls()` 访问 YouTube。
 4. 如果实时链路仍失败且视频 ID 是参考视频，Resolver 使用版本化字幕 Fixture。
-5. 其他视频返回明确错误，不把不存在的字幕或模型猜测伪装成成功。
+5. 其他公开视频由 Gemini YouTube URL 能力提取结构化时间片段，来源标记为「AI 视频转录」。它不是 YouTube 原始字幕，页面会提示可能存在转录误差。
+6. 私有、未列出、超出免费限制或无法处理的视频返回明确错误，不伪装成成功。
 
 Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它是根据参考视频公开内容校订的演示输入，不冒充实时提取结果。
 
@@ -74,9 +77,13 @@ Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它
 - `src/worker/transcript/resolver.ts`
 - `src/worker/transcript/youtube.ts`
 - `src/worker/transcript/tcp-proxy-transport.ts`
+- `src/worker/transcript/socks5.ts`
+- `src/worker/gemini/video-transcript.ts`
 - `fixtures/xRh2sVcNXQ8.json`
 
 Cloudflare Worker 的 `fetch` 没有通用 `proxy` 参数，因此代理路径直接使用官方 [TCP Sockets API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)。
+
+Gemini 的 YouTube URL 输入目前处于 Preview，官方说明免费提供、免费层每天最多处理 8 小时公开视频，价格与限制未来可能变化；因此它是最后兜底而不是唯一字幕方案。详见官方 [Video understanding](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding)。
 
 ## 如何调用 Gemini 并实现流式输出
 
@@ -144,7 +151,7 @@ POST /api/generations/{generationId}/chapters/{chapterId}/5w1h
 - Secret：Gemini 与 Webshare 凭据使用本地 `.dev.vars` 或 Wrangler Secret；日志不输出请求头、字幕和提示词。
 - 生命周期：会话 24 小时后删除，控制 Durable Object 免费存储占用。
 - 免费资源：单 Worker、Static Assets、Durable Objects；不使用 D1、KV、Queue、Vectorize 等额外资源。免费额度与限制以 Cloudflare 官方 [Durable Objects 计费](https://developers.cloudflare.com/durable-objects/platform/pricing/) 和 [Workers Limits](https://developers.cloudflare.com/workers/platform/limits/) 为准。
-- 代理：Webshare 完全可选。没有代理时，参考视频仍可通过 Fixture 演示；其他被验证码阻断的视频会诚实失败。
+- 代理：Webshare 完全可选。没有代理时，参考视频仍可通过 Fixture 演示；其他公开且可处理的视频进入明确标记的 Gemini 视频转录兜底。
 
 两天范围有意不做账号、历史列表、富文本编辑、多模型路由和向量检索。这些能力会增加代码量，却不会加强题目的核心证据链：真实流式、字幕韧性和服务端上下文总结。
 
@@ -165,7 +172,7 @@ pnpm check             # 依次执行以上全部检查
 
 | 层级 | 主要证明 |
 | --- | --- |
-| Unit | URL 白名单、字幕轨道、验证码识别、TCP 响应、SSE/NDJSON 任意分块、提示词边界、结构化输出、React 增量渲染 |
+| Unit | URL 白名单、字幕轨道、验证码识别、SOCKS5 任意分块握手、AI 转录 Schema、SSE/NDJSON 任意分块、提示词边界、结构化输出、React 增量渲染 |
 | Integration | Worker 路由、真实 Durable Object 存储、delta 早于 completed、空请求体 5W1H、服务端上下文 |
 | E2E | 桌面和移动页面的提交、来源标记、文章排版、章节按钮、固定六字段与输入校验 |
 

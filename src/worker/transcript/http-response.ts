@@ -7,23 +7,6 @@ export interface RawHttpResponse {
 const CR = 13;
 const LF = 10;
 
-export function buildConnectRequest(
-  hostname: string,
-  port: number,
-  username: string,
-  password: string,
-): string {
-  const authorization = btoa(`${username}:${password}`);
-  return [
-    `CONNECT ${hostname}:${port} HTTP/1.1`,
-    `Host: ${hostname}:${port}`,
-    `Proxy-Authorization: Basic ${authorization}`,
-    "Proxy-Connection: keep-alive",
-    "",
-    "",
-  ].join("\r\n");
-}
-
 function findSequence(bytes: Uint8Array, sequence: number[], from = 0): number {
   outer: for (let index = from; index <= bytes.length - sequence.length; index += 1) {
     for (let offset = 0; offset < sequence.length; offset += 1) {
