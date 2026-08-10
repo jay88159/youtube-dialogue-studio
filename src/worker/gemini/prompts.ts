@@ -59,8 +59,8 @@ export function buildArticleRequest(input: ArticlePromptInput) {
     systemInstruction: { parts: [{ text: ARTICLE_SYSTEM_INSTRUCTION }] },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.35,
       maxOutputTokens: 8192,
+      thinkingConfig: { thinkingLevel: "low" },
     },
   };
 }
@@ -104,11 +104,13 @@ export function buildSummaryRequest(input: SummaryPromptInput) {
     },
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.2,
       maxOutputTokens: 1200,
+      thinkingConfig: { thinkingLevel: "low" },
       responseFormat: {
         text: {
-          mimeType: "application/json",
+          // generateContent expects the protobuf enum name here. The
+          // Interactions API uses the lower-case MIME string instead.
+          mimeType: "APPLICATION_JSON",
           schema: FIVE_W_ONE_H_SCHEMA,
         },
       },
