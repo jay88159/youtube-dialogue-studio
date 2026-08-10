@@ -1,13 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "youtube-dialogue-studio",
+  "name": "youtube-dialogue-studio-integration",
   "compatibility_date": "2026-08-08",
   "main": "./src/worker/index.ts",
-  "assets": {
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
   "durable_objects": {
     "bindings": [
       {
@@ -23,9 +18,6 @@
     }
   },
   "vars": {
-    "GEMINI_MODEL": "gemini-3.5-flash"
-  },
-  "observability": {
-    "enabled": true
+    "GEMINI_MODEL": "gemini-test"
   }
 }

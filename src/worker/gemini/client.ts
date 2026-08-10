@@ -38,7 +38,9 @@ export class GeminiClient {
   private readonly fetcher: typeof fetch;
 
   constructor(private readonly options: GeminiClientOptions) {
-    this.fetcher = options.fetcher ?? fetch;
+    // Workers runtime methods must keep their global receiver. Wrapping fetch
+    // also keeps the client injectable in unit tests without binding surprises.
+    this.fetcher = options.fetcher ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   async *streamArticle(
