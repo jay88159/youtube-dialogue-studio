@@ -91,7 +91,7 @@ generating -> cancelled
 1. 通过 Worker Fetch 读取 YouTube watch 页面和 caption track。
 2. 遇到验证页、403、429 或直连网络错误时，若配置了 Webshare 凭据，则通过 TCP Socket 完成 SOCKS5 认证与目标隧道握手后重试。
 3. 若视频 ID 等于参考视频且实时路径失败，则读取版本化夹具。
-4. 其他公开视频调用 Gemini YouTube URL Preview，按 JSON Schema 提取时间片段，并标记为 `gemini` 来源。
+4. 其他公开视频调用 Gemini YouTube URL Preview，提取覆盖全片的有界内容地图，并标记为 `gemini` 来源。标准档最多 96 个片段、每段 240 字；若候选结果以 `MAX_TOKENS` 结束或结构化结果非法，自动以 48 个片段、每段 180 字的紧凑档重试一次。
 5. 视频不可公开读取、超出免费限制或结构化转录非法时返回可操作错误，不生成虚构字幕。
 
 传输层和字幕解析层分离。`HttpTransport` 负责字节传输，`YouTubeTranscriptProvider` 负责页面、轨道和字幕语义。代理实现不会进入文章生成模块。
@@ -109,6 +109,8 @@ interface GeminiGateway {
 ```
 
 模型名通过 `GEMINI_MODEL` 配置，代码提供当前稳定 Flash 模型默认值。API Key 只存在于 Wrangler Secret。
+
+视频兜底不追求逐字复刻，而是要求从头到尾保留人物、数字、论证、例子和分歧，并合并寒暄与重复表达。输出规模由提示词约束片段数、JSON Schema 约束单段长度，再由运行时 Zod 校验两者；这是因为 Gemini 当前结构化输出子集会拒绝数组 `maxItems`。重试只允许一次，避免上游异常形成无界请求循环；第二次仍失败时返回可操作错误。
 
 ## 5. 流式协议
 

@@ -1,13 +1,13 @@
 # 生产验证记录
 
-验证日期：2026-08-10  
+验证日期：2026-08-11
 生产地址：<https://youtube-dialogue-studio.delightful-lock.workers.dev>
 
 这份记录区分三类证据：可重复的本地测试、真实外部服务 smoke test、真实浏览器交互。外部服务测试不进入公开 CI，避免 YouTube 验证与 Gemini 免费配额让确定性检查随机失败。
 
 ## 1. 本地与 CI
 
-`pnpm check` 覆盖 ESLint、TypeScript strict、35 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
+`pnpm check` 覆盖 ESLint、TypeScript strict、36 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
 
 公开仓库的 GitHub Actions 使用相同的 `pnpm check`；CI 不注入任何 Secret。
 
@@ -78,3 +78,13 @@ BASE_URL=https://example.workers.dev pnpm test:smoke
 - 后续章节 5W1H 使用空请求体，返回 HTTP 200 和 6 个非空固定字段。
 
 这条路径不冒充 YouTube 原始字幕。官方当前说明 YouTube URL Preview 免费提供，免费层每天最多处理 8 小时公开视频，但 Preview 价格和限制可能变化。
+
+## 8. 长视频结构化输出截断复盘
+
+真实长视频曾返回约 50 KB 的未闭合 JSON，错误为 `Unterminated string`。根因不是字幕解析器，而是视频结构化输出在字符串中途达到请求的输出 token 上限；原提示词要求近似完整转录，Schema 又没有限制数组和字段规模。
+
+修复后，标准档通过提示词限制 96 个片段、通过 Schema 限制每段 240 字，并把输出上限提高到模型支持范围内的 32,768 tokens；运行时再次校验两项边界。Gemini 当前结构化输出子集会拒绝数组 `maxItems`，所以没有把一个未经真实 API 验证的关键字留在线上。客户端同时读取候选结果的 `finishReason`：遇到 `MAX_TOKENS` 或结构化结果非法时，自动用 48 个片段、每段 180 字的紧凑档重试一次。单元回归测试模拟第一次在 JSON 字符串中途截断、第二次成功，明确断言发生两次请求且重试边界更小。
+
+修复请求还绕过 Fixture，直接让 Gemini 处理 67 分钟参考视频：HTTP 200，108 秒完成，`finishReason = STOP`，返回 14 个覆盖全片的结构化片段，JSON 可解析，最长片段 191 字。
+
+部署后再次使用非 Fixture 视频 `9hE5-98ZeCg` 走完整公开 API：HTTP 200，19 秒完成，`transcript.ready.source = gemini`，收到 5 个内容片段、10 个实时正文增量和 2 个章节，没有出现固定格式错误。

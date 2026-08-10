@@ -10,7 +10,10 @@ import {
   type SummaryPromptInput,
 } from "./prompts";
 import { parseGeminiSse } from "./sse";
-import { extractedVideoTranscriptSchema } from "./video-transcript";
+import {
+  buildExtractedVideoTranscriptSchema,
+  VIDEO_CONTENT_MAP_PROFILES,
+} from "./video-transcript";
 
 interface GeminiClientOptions {
   apiKey: string;
@@ -20,6 +23,7 @@ interface GeminiClientOptions {
 
 interface GenerateContentResponse {
   candidates?: Array<{
+    finishReason?: string;
     content?: { parts?: Array<{ text?: string }> };
   }>;
 }
@@ -47,17 +51,44 @@ export class GeminiClient {
   }
 
   async extractVideoTranscript(videoId: string): Promise<TranscriptDocument> {
-    const response = await this.request("generateContent", buildVideoTranscriptRequest(videoId));
+    return this.extractVideoContentMap(videoId, false);
+  }
+
+  private async extractVideoContentMap(
+    videoId: string,
+    compact: boolean,
+  ): Promise<TranscriptDocument> {
+    const response = await this.request(
+      "generateContent",
+      buildVideoTranscriptRequest(videoId, compact),
+    );
     const payload = await response.json() as GenerateContentResponse;
-    const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
+    const candidate = payload.candidates?.[0];
+    const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("");
     if (!text) throw new GeminiResponseError("Gemini 未返回视频转录内容", 502);
 
+    if (candidate?.finishReason === "MAX_TOKENS") {
+      if (!compact) return this.extractVideoContentMap(videoId, true);
+      throw new GeminiResponseError(
+        "Gemini 视频转录不符合固定格式：输出达到长度上限，压缩重试后仍未完成",
+        502,
+      );
+    }
+
     try {
-      const transcript = extractedVideoTranscriptSchema.parse(JSON.parse(text));
+      const profile = compact
+        ? VIDEO_CONTENT_MAP_PROFILES.compact
+        : VIDEO_CONTENT_MAP_PROFILES.standard;
+      const transcript = buildExtractedVideoTranscriptSchema(profile).parse(JSON.parse(text));
       return { videoId, ...transcript };
     } catch (error) {
+      if (!compact) {
+        return this.extractVideoContentMap(videoId, true);
+      }
+
+      const detail = error instanceof Error ? error.message : "未知错误";
       throw new GeminiResponseError(
-        `Gemini 视频转录不符合固定格式：${error instanceof Error ? error.message : "未知错误"}`,
+        `Gemini 视频转录不符合固定格式：${detail}`,
         502,
       );
     }

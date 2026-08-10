@@ -10,8 +10,27 @@ const transcript: TranscriptDocument = {
   segments: [{ startMs: 0, durationMs: 1000, text: "AI is early." }],
 };
 
+interface VideoContentMapRequest {
+  contents: Array<{ parts: Array<{ fileData?: { fileUri?: string }; text?: string }> }>;
+  generationConfig: {
+    responseFormat: {
+      text: {
+        schema: {
+          properties: {
+            segments: {
+              maxItems?: number;
+              description?: string;
+              items: { properties: { text: { maxLength?: number } } };
+            };
+          };
+        };
+      };
+    };
+  };
+}
+
 describe("GeminiClient", () => {
-  it("extracts a structured transcript from a public YouTube video URL", async () => {
+  it("extracts a bounded content map from a public YouTube video URL", async () => {
     let request: Request | undefined;
     const fetcher: typeof fetch = async (input, init) => {
       request = new Request(input, init);
@@ -44,11 +63,59 @@ describe("GeminiClient", () => {
       ],
     });
 
-    const body = await request!.json() as {
-      contents: Array<{ parts: Array<{ fileData?: { fileUri?: string } }> }>;
-    };
+    const body = await request!.json() as VideoContentMapRequest;
     expect(body.contents[0].parts[0].fileData?.fileUri)
       .toBe("https://www.youtube.com/watch?v=9hE5-98ZeCg");
+    expect(body.generationConfig.responseFormat.text.schema.properties.segments.maxItems)
+      .toBeUndefined();
+    expect(body.generationConfig.responseFormat.text.schema.properties.segments.description)
+      .toContain("最多 96 个");
+    expect(body.generationConfig.responseFormat.text.schema.properties.segments.items.properties.text.maxLength)
+      .toBe(240);
+    expect(body.contents[0].parts[1].text).toContain("不超过 96 个");
+  });
+
+  it("retries with a smaller content map when a long-video response is truncated", async () => {
+    const requests: Request[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push(new Request(input, init));
+      if (requests.length === 1) {
+        return Response.json({
+          candidates: [{
+            finishReason: "MAX_TOKENS",
+            content: { parts: [{ text: '{"title":"Long video","segments":[{"text":"unterminated' }] },
+          }],
+        });
+      }
+      return Response.json({
+        candidates: [{
+          finishReason: "STOP",
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                title: "Long video",
+                language: "en",
+                segments: [{ startMs: 0, durationMs: 60_000, text: "Condensed opening." }],
+              }),
+            }],
+          },
+        }],
+      });
+    };
+    const client = new GeminiClient({ apiKey: "test-key", model: "gemini-test", fetcher });
+
+    await expect(client.extractVideoTranscript("longVideo1")).resolves.toMatchObject({
+      videoId: "longVideo1",
+      segments: [{ text: "Condensed opening." }],
+    });
+
+    expect(requests).toHaveLength(2);
+    const retryBody = await requests[1].json() as VideoContentMapRequest;
+    expect(retryBody.generationConfig.responseFormat.text.schema.properties.segments.maxItems)
+      .toBeUndefined();
+    expect(retryBody.generationConfig.responseFormat.text.schema.properties.segments.items.properties.text.maxLength)
+      .toBe(180);
+    expect(retryBody.contents[0].parts[1].text).toContain("不超过 48 个");
   });
 
   it("streams article deltas from the Gemini SSE endpoint", async () => {
