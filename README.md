@@ -1,0 +1,214 @@
+# 逐章 · YouTube 对话文章生成器
+
+把带字幕的 YouTube 视频转换为结构清晰的中文对话文章。主文章由 Gemini 真实流式生成，完成后可以基于服务端保存的上下文，为任意章节生成固定格式的 5W1H 总结。
+
+> GitHub：<https://github.com/jay88159/youtube-dialogue-studio>  
+> 在线演示：首次 Cloudflare 部署后回填
+
+## 产品能力
+
+- 输入 YouTube 链接，自动解析字幕轨道；仅允许固定的 YouTube 域名，避免 SSRF。
+- 自然语言要求可控制任务类型、输出风格、目标受众和表达约束。
+- 文章通过 POST 响应中的 NDJSON 逐段抵达，生成未结束时正文已经可读。
+- 每个二级章节都有 5W1H 操作，固定渲染 Who、What、When、Where、Why、How。
+- 5W1H 的浏览器请求没有请求体；完整字幕、文章结构与章节正文从 Durable Object 读取。
+- YouTube 直连失败时可经 Webshare HTTP CONNECT 代理重试；参考视频另有明确标记的内置字幕，保证演示可复现。
+- 一个 Cloudflare Worker 同时承载静态页面、API 和 SQLite-backed Durable Object，不依赖付费数据库。
+
+## 快速体验
+
+环境要求：Node.js 22、pnpm 11。
+
+```bash
+pnpm install
+cp .dev.vars.example .dev.vars
+# 在 .dev.vars 中填写 GEMINI_API_KEY
+pnpm dev
+```
+
+打开终端给出的本地地址，点击「使用示例」即可填入参考视频：
+
+```text
+https://www.youtube.com/watch?v=xRh2sVcNXQ8
+```
+
+`.dev.vars` 已被 Git 忽略。Gemini Key 只存在于 Worker 环境，永远不会发送到浏览器。
+
+## 架构
+
+```mermaid
+flowchart LR
+    Browser["React 页面"] -->|"POST + NDJSON"| API["Hono Worker"]
+    API --> Session["每次生成一个 Durable Object"]
+    Session --> Resolver["字幕 Resolver"]
+    Resolver --> Direct["YouTube Fetch"]
+    Resolver --> Proxy["Webshare TCP CONNECT"]
+    Resolver --> Fixture["参考字幕 Fixture"]
+    Session -->|"SSE"| Gemini["Gemini API"]
+    Session -->|"article.delta"| Browser
+    Browser -->|"generationId + chapterId"| API
+    API --> Session
+    Session -->|"服务端全文上下文"| Gemini
+```
+
+选择 Durable Object 的原因不是“为了用 Cloudflare 功能”，而是题目需要生成结束后立即读取同一次会话的字幕、文章和章节。一个生成 ID 对应一个对象，天然提供强一致、隔离的上下文；24 小时 Alarm 到期后执行 `deleteAll()`。D1 的跨会话查询并无需求，KV 的最终一致性则会制造刚生成完却读不到章节的竞态。
+
+更完整的状态机、安全边界与取舍见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，两天实施拆解见 [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)。
+
+## 如何获取和处理 YouTube 字幕
+
+字幕链路被拆成“传输”和“语义解析”两层：
+
+1. `FetchTransport` 请求由代码构造的 YouTube watch URL。
+2. `YouTubeTranscriptProvider` 从 `ytInitialPlayerResponse` 读取 caption track，优先人工字幕，再选自动字幕；随后请求 JSON3 timedtext 并规范化时间段与文本。
+3. 如果 watch 页面出现 `LOGIN_REQUIRED`、验证页面、403、429 或网络问题，并且配置了 Webshare，则 `TcpProxyTransport` 使用 Cloudflare `connect()` 建立 TCP，发出 HTTP `CONNECT`，再通过 `startTls()` 访问 YouTube。
+4. 如果实时链路仍失败且视频 ID 是参考视频，Resolver 使用版本化字幕 Fixture。
+5. 其他视频返回明确错误，不把不存在的字幕或模型猜测伪装成成功。
+
+Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它是根据参考视频公开内容校订的演示输入，不冒充实时提取结果。
+
+相关实现：
+
+- `src/worker/transcript/resolver.ts`
+- `src/worker/transcript/youtube.ts`
+- `src/worker/transcript/tcp-proxy-transport.ts`
+- `fixtures/xRh2sVcNXQ8.json`
+
+Cloudflare Worker 的 `fetch` 没有通用 `proxy` 参数，因此代理路径直接使用官方 [TCP Sockets API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)。
+
+## 如何调用 Gemini 并实现流式输出
+
+Worker 直接调用 Gemini REST 接口：
+
+```text
+POST /v1beta/models/{model}:streamGenerateContent?alt=sse
+```
+
+`GeminiClient` 跨任意网络分块解析 SSE，只提取候选内容中的文本增量。Durable Object 把每个增量编码成一行 NDJSON：
+
+```json
+{"type":"article.delta","text":"本次新生成的 Markdown"}
+```
+
+浏览器通过 Fetch 读取 `ReadableStream`，`decodeNdjson` 处理半行、粘包和 UTF-8 分块，`useGeneration` 每收到一个 `article.delta` 就追加正文。这里没有把完整结果攒完再模拟打字；集成测试会断言 delta 事件严格先于 completed 事件。
+
+选择 NDJSON 而不是 EventSource，是因为生成请求需要 POST JSON；选择 Fetch 而不是 WebSocket，是因为这是一次有限、单向、可取消的流。文章使用 Markdown 而非模型 HTML，React Markdown 默认不执行原始 HTML。
+
+相关实现：
+
+- `src/worker/gemini/client.ts`
+- `src/worker/gemini/sse.ts`
+- `src/worker/generation-session.ts`
+- `src/shared/ndjson.ts`
+- `src/client/hooks/use-generation.ts`
+
+Gemini 文本流与结构化输出的接口形态参考官方 [文本生成](https://ai.google.dev/gemini-api/docs/generate-content/text-generation) 和 [结构化输出](https://ai.google.dev/gemini-api/docs/generate-content/structured-output) 文档。模型名通过 `GEMINI_MODEL` 配置，不写死在业务模块中。
+
+## 用户生成要求如何影响结果
+
+可选要求最长 1000 字，作为独立的“不可信用户偏好”数据块进入提示词。系统提示词允许它影响：
+
+- 任务类型，例如访谈整理、观点分析或科普复述；
+- 输出风格，例如克制、叙事化、专业或口语化；
+- 目标受众，例如产品经理、开发者或非技术读者；
+- 约束条件，例如保留数字、控制篇幅或突出争议。
+
+它不能覆盖事实忠实度、中文 Markdown 协议、安全指令和“不补造字幕之外事实”的底线。字幕本身同样被视为不可信数据，字幕里出现的命令不会升级为系统指令。
+
+相关实现与测试：`src/worker/gemini/prompts.ts`、`tests/unit/gemini/prompts.test.ts`。
+
+## 章节级 5W1H 如何实现
+
+文章生成完成后，服务端按 `##` 标题建立稳定章节 ID，并在同一个 Durable Object 中保存：
+
+```text
+meta / transcript / article / chapters / summary:{chapterId}
+```
+
+浏览器只发送：
+
+```http
+POST /api/generations/{generationId}/chapters/{chapterId}/5w1h
+```
+
+请求不包含字幕、整篇文章或当前章节正文。服务端读取完整字幕、全文章节标题和目标章节正文，要求 Gemini 按 JSON Schema 返回六个必填字符串，再用 Zod 做运行时校验。成功结果按章节缓存，重复展开不再次消耗免费额度。
+
+这条约束由 `tests/integration/generation-flow.test.ts` 验证：测试发送空请求体，并检查发往 Gemini 的服务端提示词同时包含完整字幕和当前章节。
+
+## 错误、配额与工程边界
+
+- 输入：只接收常见 YouTube URL 形态，要求长度、字幕大小和文章大小均有限制。
+- 外部失败：无字幕、YouTube 验证、代理失败、Gemini 429 与结构化输出非法分别映射为稳定错误。
+- Secret：Gemini 与 Webshare 凭据使用本地 `.dev.vars` 或 Wrangler Secret；日志不输出请求头、字幕和提示词。
+- 生命周期：会话 24 小时后删除，控制 Durable Object 免费存储占用。
+- 免费资源：单 Worker、Static Assets、Durable Objects；不使用 D1、KV、Queue、Vectorize 等额外资源。免费额度与限制以 Cloudflare 官方 [Durable Objects 计费](https://developers.cloudflare.com/durable-objects/platform/pricing/) 和 [Workers Limits](https://developers.cloudflare.com/workers/platform/limits/) 为准。
+- 代理：Webshare 完全可选。没有代理时，参考视频仍可通过 Fixture 演示；其他被验证码阻断的视频会诚实失败。
+
+两天范围有意不做账号、历史列表、富文本编辑、多模型路由和向量检索。这些能力会增加代码量，却不会加强题目的核心证据链：真实流式、字幕韧性和服务端上下文总结。
+
+## 测试与验证
+
+```bash
+pnpm lint              # ESLint
+pnpm typecheck         # TypeScript strict mode
+pnpm test              # 共享、字幕、Gemini、React 单元测试
+pnpm test:integration  # workerd + Durable Object 集成测试
+pnpm test:e2e          # Chromium 桌面与移动端完整交互
+pnpm build             # Cloudflare Vite 生产构建
+pnpm check             # 依次执行以上全部检查
+```
+
+测试分层：
+
+| 层级 | 主要证明 |
+| --- | --- |
+| Unit | URL 白名单、字幕轨道、验证码识别、TCP 响应、SSE/NDJSON 任意分块、提示词边界、结构化输出、React 增量渲染 |
+| Integration | Worker 路由、真实 Durable Object 存储、delta 早于 completed、空请求体 5W1H、服务端上下文 |
+| E2E | 桌面和移动页面的提交、来源标记、文章排版、章节按钮、固定六字段与输入校验 |
+
+外部网络不会进入公开 CI。实时 Gemini 与 YouTube 只做部署后的 smoke test，避免第三方验证码和免费配额让单元测试随机失败。
+
+## 部署到 Cloudflare
+
+先登录并创建免费计划下的 Worker：
+
+```bash
+pnpm exec wrangler login
+pnpm exec wrangler secret put GEMINI_API_KEY
+
+# 可选：YouTube 直连受限时配置 Webshare
+pnpm exec wrangler secret put WEBSHARE_PROXY_HOST
+pnpm exec wrangler secret put WEBSHARE_PROXY_PORT
+pnpm exec wrangler secret put WEBSHARE_PROXY_USERNAME
+pnpm exec wrangler secret put WEBSHARE_PROXY_PASSWORD
+
+pnpm deploy
+```
+
+Vite 构建会生成 Wrangler 的重定向部署配置，把 `dist/client` 作为 Static Assets 上传，并导出 SQLite-backed `GenerationSession`。可先用下面的命令校验部署包而不发布：
+
+```bash
+pnpm build
+pnpm exec wrangler deploy --dry-run
+```
+
+部署完成后，使用参考视频做一次真实 smoke test，并确认页面出现正文增量、字幕来源与 5W1H 六字段。
+
+## 目录
+
+```text
+src/client              React 产品界面与流式状态
+src/shared              浏览器和 Worker 共用的协议与纯函数
+src/worker              Hono、Durable Object、字幕与 Gemini
+fixtures                版本化参考字幕
+tests/unit              快速纯函数和组件测试
+tests/integration       workerd 内的 Worker 集成测试
+tests/e2e               Chromium 桌面与移动用户路径
+docs/ARCHITECTURE.md     架构、状态机、安全与取舍
+docs/IMPLEMENTATION_PLAN.md 两天任务拆解与完成证据
+CLAUDE.md                仓库级 AI coding 约束
+```
+
+## AI coding 说明
+
+仓库允许 AI 辅助，但不把生成代码本身当作工程质量。`CLAUDE.md` 固化了范围、模块依赖、Secret、Fixture 诚实标记、测试优先和 Git 约束；架构文档先定义证据链，再由分层测试证明关键行为。提交保持小步且可独立解释，分支和提交信息不包含题目禁止的词汇。

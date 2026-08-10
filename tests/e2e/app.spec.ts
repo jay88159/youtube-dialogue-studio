@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 
+import type { GenerationEvent } from "../../src/shared/contracts";
 import { encodeNdjson } from "../../src/shared/ndjson";
 
 const generationId = "955a4b5b-6add-4d23-8cba-bb6b4ec247ae";
-const events = [
+const events: GenerationEvent[] = [
   { type: "generation.created", generationId },
   { type: "transcript.ready", source: "fixture", segmentCount: 30 },
   {
@@ -21,7 +22,7 @@ const events = [
       { id: "chapter-2", title: "从基础设施到应用价值" },
     ],
   },
-] as const;
+];
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/generations", async (route) => {

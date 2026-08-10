@@ -12,8 +12,25 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    {
+      name: "chromium-1440",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 1000 } },
+    },
+    {
+      name: "tablet-dark-768",
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 768, height: 1024 },
+        colorScheme: "dark",
+      },
+    },
+    {
+      name: "mobile-390",
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
   webServer: {
     command: "pnpm dev --host 127.0.0.1 --port 4173",
