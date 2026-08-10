@@ -7,7 +7,7 @@
 
 ## 1. 本地与 CI
 
-`pnpm check` 覆盖 ESLint、TypeScript strict、36 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
+`pnpm check` 覆盖 ESLint、TypeScript strict、37 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
 
 公开仓库的 GitHub Actions 使用相同的 `pnpm check`；CI 不注入任何 Secret。
 
@@ -88,3 +88,13 @@ BASE_URL=https://example.workers.dev pnpm test:smoke
 修复请求还绕过 Fixture，直接让 Gemini 处理 67 分钟参考视频：HTTP 200，108 秒完成，`finishReason = STOP`，返回 14 个覆盖全片的结构化片段，JSON 可解析，最长片段 191 字。
 
 部署后再次使用非 Fixture 视频 `9hE5-98ZeCg` 走完整公开 API：HTTP 200，19 秒完成，`transcript.ready.source = gemini`，收到 5 个内容片段、10 个实时正文增量和 2 个章节，没有出现固定格式错误。
+
+## 9. 编辑工作台重设计验收
+
+重设计保留左侧输入、右侧阅读、流式状态和章节 5W1H 的既有信息架构，移除了径向渐变、悬浮双卡片、发光品牌块、标签胶囊以及 Magic Wand、Sparkle 等泛 AI 图标。视觉系统改为平面分栏、冷中性纸面和单一朱橙强调色；设计审计与约束见 `docs/FRONTEND_DESIGN.md`。
+
+本地 Playwright 在 1440 px 亮色、768 px 深色和 390 px 手机三个项目中完成生成与 5W1H 路径，并断言页面 `scrollWidth <= clientWidth`。按钮与正文的实测对比度分别为 4.57:1、6.02:1，暗色模式分别为 5.83:1、7.74:1。
+
+部署后用真实 Chromium 访问公开地址并生成参考视频：9 秒完成，页面进入“阅读模式”，出现 3 个章节、演示字幕来源和 6 个非空 5W1H 字段；视口宽度 1440 px 时没有横向溢出，浏览器控制台没有错误。README 截图来自这次公开生产请求，不是 mock 页面。
+
+重设计没有新增运行时依赖。生产构建中，客户端 JavaScript 从 402.00 kB / gzip 121.47 kB 降至 391.38 kB / gzip 119.02 kB，CSS 从 12.62 kB / gzip 3.76 kB 降至 12.40 kB / gzip 3.46 kB，主要来自删除不必要的装饰图标与旧样式。

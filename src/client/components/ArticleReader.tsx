@@ -1,4 +1,4 @@
-import { CaretDown, ListBullets, Sparkle } from "@phosphor-icons/react";
+import { CaretDown } from "@phosphor-icons/react";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -76,7 +76,6 @@ function Chapter({
           aria-label="生成 5W1H 总结"
           aria-expanded={summary.open}
         >
-          <Sparkle aria-hidden="true" size={15} weight="fill" />
           5W1H
           <CaretDown aria-hidden="true" size={14} />
         </button>
@@ -95,9 +94,14 @@ export function ArticleReader({ article, completed, generationId }: ArticleReade
   if (!article) {
     return (
       <div className="empty-article">
-        <div className="empty-icon"><ListBullets aria-hidden="true" size={24} /></div>
-        <p>生成内容会从这里逐字出现</p>
-        <span>完成后可对每个章节生成 5W1H 总结</span>
+        <span className="empty-label">文章工作区</span>
+        <p>文章会在这里展开</p>
+        <span>正文逐段流入，完成后可按章节生成 5W1H。</span>
+        <div className="empty-lines" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
       </div>
     );
   }

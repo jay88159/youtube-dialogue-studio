@@ -10,15 +10,24 @@ export function App() {
   const { state, generate, cancel } = useGeneration();
   const [lastRequest, setLastRequest] = useState<{ url: string; requirement?: string }>();
   const active = ["starting", "transcript", "generating"].includes(state.phase);
+  const readerStatus = state.phase === "idle"
+    ? "等待输入"
+    : state.phase === "starting" || state.phase === "transcript"
+      ? "准备内容"
+      : state.phase === "generating"
+        ? "正在写作"
+        : state.phase === "completed"
+          ? "阅读模式"
+          : "生成中断";
 
   return (
     <div className="app-shell">
       <header className="app-header">
         <a className="brand" href="/" aria-label="逐章首页">
-          <span className="brand-mark"><Article aria-hidden="true" size={18} weight="fill" /></span>
+          <span className="brand-mark"><Article aria-hidden="true" size={21} /></span>
           <span>逐章</span>
         </a>
-        <p>视频对话文章生成器</p>
+        <p>视频到中文对话文章</p>
         <a
           className="github-link"
           href="https://github.com/jay88159/youtube-dialogue-studio"
@@ -26,16 +35,16 @@ export function App() {
           rel="noreferrer"
           aria-label="查看 GitHub 仓库"
         >
-          <GithubLogo aria-hidden="true" size={20} />
+          <GithubLogo aria-hidden="true" size={18} />
+          <span>GitHub</span>
         </a>
       </header>
 
       <main className="workspace">
         <aside className="control-panel">
           <div className="panel-intro">
-            <span className="eyebrow">YouTube → 中文对话文章</span>
-            <h1>把长视频，读成一场有重点的对话。</h1>
-            <p>读取字幕、流式生成文章，再按章节提炼 5W1H。</p>
+            <h1>把视频整理成可读的对话</h1>
+            <p>字幕、文章、章节总结，都在同一个阅读工作台完成。</p>
           </div>
 
           <GenerationForm
@@ -71,18 +80,18 @@ export function App() {
 
           <div className="privacy-note">
             <span>会话上下文保留 24 小时</span>
-            <span aria-hidden="true">·</span>
             <span>不在浏览器保存 API Key</span>
           </div>
         </aside>
 
-        <section className="reader-panel" aria-label="生成的文章">
+        <section className="reader-panel" aria-label="生成的文章" aria-busy={active}>
           <div className="reader-toolbar">
             <div>
-              <span className="reader-label">输出预览</span>
+              <span className="reader-label">文章</span>
+              <span className="reader-state">{readerStatus}</span>
               {state.article && <small>{state.article.length.toLocaleString("zh-CN")} 字符</small>}
             </div>
-            {state.phase === "completed" && <span className="completion-mark">已完成</span>}
+            <span className="reader-format">Markdown</span>
           </div>
           <div className="reader-scroll">
             <ArticleReader

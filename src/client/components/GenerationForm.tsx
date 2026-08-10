@@ -1,4 +1,4 @@
-import { ArrowRight, LinkSimple, MagicWand, StopCircle } from "@phosphor-icons/react";
+import { ArrowRight, LinkSimple, StopCircle } from "@phosphor-icons/react";
 import { type FormEvent, useState } from "react";
 
 import type { GenerationRequest } from "@/shared/contracts";
@@ -69,7 +69,7 @@ export function GenerationForm({ active, onCancel, onSubmit }: GenerationFormPro
         {validationError ? (
           <p id="video-url-error" className="field-error" role="alert">{validationError}</p>
         ) : (
-          <p id="video-url-help" className="field-help">需要视频存在可读取的字幕轨道</p>
+          <p id="video-url-help" className="field-help">支持有字幕的公开视频；字幕不可用时会尝试视频解析。</p>
         )}
       </div>
 
@@ -87,12 +87,7 @@ export function GenerationForm({ active, onCancel, onSubmit }: GenerationFormPro
           disabled={active}
           placeholder="例如：面向没有技术背景的产品经理；保留关键数字；用克制、专业的访谈风格。"
         />
-        <div className="constraint-hints" aria-label="要求可控制的维度">
-          <span>任务类型</span>
-          <span>输出风格</span>
-          <span>目标受众</span>
-          <span>约束条件</span>
-        </div>
+        <p className="constraint-help">可指定任务类型、输出风格、目标受众和内容约束。</p>
       </div>
 
       {active ? (
@@ -102,7 +97,6 @@ export function GenerationForm({ active, onCancel, onSubmit }: GenerationFormPro
         </button>
       ) : (
         <button className="primary-button" type="submit">
-          <MagicWand aria-hidden="true" size={20} weight="fill" />
           生成对话文章
           <ArrowRight className="button-tail" aria-hidden="true" size={18} />
         </button>

@@ -22,6 +22,15 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("presents the product as an editorial workspace", () => {
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "把视频整理成可读的对话" }))
+      .toBeInTheDocument();
+    expect(screen.getByText("字幕、文章、章节总结，都在同一个阅读工作台完成。"))
+      .toBeInTheDocument();
+  });
+
   it("rejects an invalid URL before starting a request", () => {
     const fetcher = vi.spyOn(globalThis, "fetch");
     render(<App />);

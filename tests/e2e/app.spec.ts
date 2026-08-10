@@ -51,6 +51,7 @@ test.beforeEach(async ({ page }) => {
 
 test("generates an article and opens a chapter summary", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "把视频整理成可读的对话" })).toBeVisible();
   await page.getByRole("button", { name: "使用示例" }).click();
   await page.getByLabel("生成要求（可选）").fill("面向产品经理，保留商业数据，风格克制专业");
   await page.getByRole("button", { name: "生成对话文章" }).click();
@@ -61,6 +62,12 @@ test("generates an article and opens a chapter summary", async ({ page }) => {
 
   await expect(page.getByText("Who / 谁")).toBeVisible();
   await expect(page.getByText("AI 行业的收入、商业模式与单位成本趋势")).toBeVisible();
+
+  const pageWidth = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
+  expect(pageWidth.scrollWidth).toBeLessThanOrEqual(pageWidth.clientWidth);
 });
 
 test("shows inline validation for a non-YouTube URL", async ({ page }) => {

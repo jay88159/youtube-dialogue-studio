@@ -217,6 +217,7 @@ tests/unit              快速纯函数和组件测试
 tests/integration       workerd 内的 Worker 集成测试
 tests/e2e               Chromium 桌面与移动用户路径
 docs/ARCHITECTURE.md     架构、状态机、安全与取舍
+docs/FRONTEND_DESIGN.md  编辑工作台的视觉审计与设计系统
 docs/IMPLEMENTATION_PLAN.md 两天任务拆解与完成证据
 docs/VERIFICATION.md     真实 Gemini、生产流式与浏览器证据
 CLAUDE.md                仓库级 AI coding 约束

@@ -1,4 +1,4 @@
-import { CheckCircle, Database, GlobeSimple, SpinnerGap } from "@phosphor-icons/react";
+import { CheckCircle, Database, GlobeSimple, SpinnerGap, WarningCircle } from "@phosphor-icons/react";
 
 import type { TranscriptSource } from "@/shared/contracts";
 import type { GenerationPhase } from "../hooks/use-generation";
@@ -31,10 +31,12 @@ export function SourceStatus({ phase, source, segmentCount }: SourceStatusProps)
           : "生成中断";
 
   return (
-    <div className="source-status" aria-live="polite">
+    <div className={`source-status source-status-${phase}`} aria-live="polite">
       <div className="status-line">
         {inProgress ? (
           <SpinnerGap className="spin" aria-hidden="true" size={17} />
+        ) : phase === "error" ? (
+          <WarningCircle aria-hidden="true" size={17} weight="fill" />
         ) : (
           <CheckCircle aria-hidden="true" size={17} weight="fill" />
         )}
