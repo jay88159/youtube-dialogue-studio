@@ -1,0 +1,31 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "youtube-dialogue-studio",
+  "compatibility_date": "2026-08-10",
+  "main": "./src/worker/index.ts",
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GENERATION_SESSION",
+        "class_name": "GenerationSession"
+      }
+    ]
+  },
+  "exports": {
+    "GenerationSession": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "GEMINI_MODEL": "gemini-3.5-flash"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
