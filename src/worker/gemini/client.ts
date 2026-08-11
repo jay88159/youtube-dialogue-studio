@@ -11,7 +11,7 @@ import {
 } from "./prompts";
 import { parseGeminiSse } from "./sse";
 import {
-  buildExtractedVideoTranscriptSchema,
+  parseExtractedVideoTranscript,
   VIDEO_CONTENT_MAP_PROFILES,
 } from "./video-transcript";
 
@@ -79,7 +79,7 @@ export class GeminiClient {
       const profile = compact
         ? VIDEO_CONTENT_MAP_PROFILES.compact
         : VIDEO_CONTENT_MAP_PROFILES.standard;
-      const transcript = buildExtractedVideoTranscriptSchema(profile).parse(JSON.parse(text));
+      const transcript = parseExtractedVideoTranscript(JSON.parse(text), profile);
       return { videoId, ...transcript };
     } catch (error) {
       if (!compact) {

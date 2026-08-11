@@ -91,7 +91,7 @@ generating -> cancelled
 1. 通过 Worker Fetch 读取 YouTube watch 页面和 caption track。
 2. 遇到验证页、403、429 或直连网络错误时，若配置了 Webshare 凭据，则通过 TCP Socket 完成 SOCKS5 认证与目标隧道握手后重试。
 3. 若视频 ID 等于参考视频且实时路径失败，则读取版本化夹具。
-4. 其他公开视频调用 Gemini YouTube URL Preview，提取覆盖全片的有界内容地图，并标记为 `gemini` 来源。标准档最多 96 个片段、每段 240 字；若候选结果以 `MAX_TOKENS` 结束或结构化结果非法，自动以 48 个片段、每段 180 字的紧凑档重试一次。
+4. 其他公开视频调用 Gemini YouTube URL Preview，提取覆盖全片的有界内容地图，并标记为 `gemini` 来源。标准档最多 96 个片段、每段 240 字；若候选结果以 `MAX_TOKENS` 结束或结构化结果非法，自动以 48 个片段、每段 180 字的紧凑档重试一次。服务端不把 Schema 当作硬保证：合法结构中的超长文本会确定性截断，过量片段会沿时间轴等距取样并保留首尾。
 5. 视频不可公开读取、超出免费限制或结构化转录非法时返回可操作错误，不生成虚构字幕。
 
 传输层和字幕解析层分离。`HttpTransport` 负责字节传输，`YouTubeTranscriptProvider` 负责页面、轨道和字幕语义。代理实现不会进入文章生成模块。

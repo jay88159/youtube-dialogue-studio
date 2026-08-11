@@ -67,7 +67,7 @@ flowchart LR
 2. `YouTubeTranscriptProvider` 从 `ytInitialPlayerResponse` 读取 caption track，优先人工字幕，再选自动字幕；随后请求 JSON3 timedtext 并规范化时间段与文本。
 3. 如果 watch 页面出现 `LOGIN_REQUIRED`、验证页面、403、429 或网络问题，并且配置了 Webshare，则 `TcpProxyTransport` 使用 Cloudflare `connect()` 建立 TCP，完成 SOCKS5 用户名密码认证和目标隧道握手，再通过 `startTls()` 访问 YouTube。
 4. 如果实时链路仍失败且视频 ID 是参考视频，Resolver 使用版本化字幕 Fixture。
-5. 其他公开视频由 Gemini YouTube URL 能力提取覆盖全片的结构化内容地图，来源标记为「AI 视频转录」。标准请求限制为 96 个片段、每段 240 字；若响应达到 token 上限或 JSON 被截断，服务端会自动改用 48 个片段、每段 180 字的紧凑 Schema 重试一次。它不是 YouTube 原始字幕，页面会提示可能存在转录误差。
+5. 其他公开视频由 Gemini YouTube URL 能力提取覆盖全片的结构化内容地图，来源标记为「AI 视频转录」。标准请求限制为 96 个片段、每段 240 字；若响应达到 token 上限或 JSON 被截断，服务端会自动改用 48 个片段、每段 180 字的紧凑 Schema 重试一次。模型偶尔会忽略 Schema 的长度提示，因此服务端还会确定性截断超长文本，并在片段过多时等距保留首尾内容。它不是 YouTube 原始字幕，页面会提示可能存在转录误差。
 6. 私有、未列出、超出免费限制或无法处理的视频返回明确错误，不伪装成成功。
 
 Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它是根据参考视频公开内容校订的演示输入，不冒充实时提取结果。
@@ -85,7 +85,7 @@ Cloudflare Worker 的 `fetch` 没有通用 `proxy` 参数，因此代理路径�
 
 Gemini 的 YouTube URL 输入目前处于 Preview，官方说明免费提供、免费层每天最多处理 8 小时公开视频，价格与限制未来可能变化；因此它是最后兜底而不是唯一字幕方案。详见官方 [Video understanding](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding)。
 
-内容地图的上限是有意的工程取舍：文章需要覆盖观点、人物、数字和分歧，而不需要复制每一句口头语。相比无限制要求“完整逐字稿”，有界 Schema 能控制免费额度消耗，并避免长视频在 JSON 字符串中途被截断。
+内容地图的上限是有意的工程取舍：文章需要覆盖观点、人物、数字和分歧，而不需要复制每一句口头语。相比无限制要求“完整逐字稿”，有界 Schema 能控制免费额度消耗，并避免长视频在 JSON 字符串中途被截断。Schema 是对模型的输出约束，不是服务端信任边界；最终边界始终由运行时代码收口。
 
 ## 如何调用 Gemini 并实现流式输出
 

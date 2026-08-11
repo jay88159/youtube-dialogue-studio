@@ -118,6 +118,50 @@ describe("GeminiClient", () => {
     expect(retryBody.contents[0].parts[1].text).toContain("不超过 48 个");
   });
 
+  it("bounds overlong segments returned by the compact retry", async () => {
+    let attempts = 0;
+    const fetcher: typeof fetch = async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return Response.json({
+          candidates: [{
+            finishReason: "MAX_TOKENS",
+            content: { parts: [{ text: '{"title":"Long video"' }] },
+          }],
+        });
+      }
+
+      return Response.json({
+        candidates: [{
+          finishReason: "STOP",
+          content: {
+            parts: [{
+              text: JSON.stringify({
+                title: "Long video",
+                language: "zh-CN",
+                segments: [
+                  { startMs: 0, durationMs: 60_000, text: "开".repeat(220) },
+                  { startMs: 60_000, durationMs: 60_000, text: "尾".repeat(220) },
+                ],
+              }),
+            }],
+          },
+        }],
+      });
+    };
+    const client = new GeminiClient({ apiKey: "test-key", model: "gemini-test", fetcher });
+
+    const result = await client.extractVideoTranscript("longVideo2");
+
+    expect(attempts).toBe(2);
+    expect(result.segments).toHaveLength(2);
+    expect(result.segments.every((segment) => segment.text.length <= 180)).toBe(true);
+    expect(result.segments[0]).toMatchObject({ startMs: 0, durationMs: 60_000 });
+    expect(result.segments[1]).toMatchObject({ startMs: 60_000, durationMs: 60_000 });
+    expect(result.segments[0].text.endsWith("…")).toBe(true);
+    expect(result.segments[1].text.endsWith("…")).toBe(true);
+  });
+
   it("streams article deltas from the Gemini SSE endpoint", async () => {
     const requests: Request[] = [];
     const fetcher: typeof fetch = async (input, init) => {

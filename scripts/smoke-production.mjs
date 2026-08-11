@@ -1,6 +1,6 @@
 const baseUrl = process.env.BASE_URL ?? "https://youtube-dialogue-studio.delightful-lock.workers.dev";
-const videoUrl = "https://www.youtube.com/watch?v=xRh2sVcNXQ8";
-const requirement =
+const videoUrl = process.env.VIDEO_URL ?? "https://www.youtube.com/watch?v=xRh2sVcNXQ8";
+const requirement = process.env.REQUIREMENT ??
   "面向零基础创业者，用清晰比喻解释商业判断；不要使用技术行话；每章末尾给出一句行动提示";
 
 function invariant(condition, message) {
@@ -80,6 +80,7 @@ console.log(
     {
       baseUrl,
       transcriptSource: transcript.event.source,
+      transcriptSegments: transcript.event.segmentCount,
       firstDeltaMs: deltas[0].elapsedMs,
       completedMs: completed.elapsedMs,
       deltaEvents: deltas.length,
