@@ -3,6 +3,8 @@ import type { TranscriptDocument } from "@/worker/transcript/types";
 
 import { fiveWOneHSchema } from "./five-w-one-h";
 import {
+  buildArticleContinuationRequest,
+  buildArticlePreviewRequest,
   buildArticleRequest,
   buildSummaryRequest,
   buildVideoTranscriptRequest,
@@ -14,6 +16,21 @@ import {
   parseExtractedVideoTranscript,
   VIDEO_CONTENT_MAP_PROFILES,
 } from "./video-transcript";
+
+const MAX_PREVIEW_DURATION_MS = 5 * 60 * 1000;
+
+function openingTranscript(transcript: TranscriptDocument): TranscriptDocument {
+  const totalDurationMs = Math.max(
+    ...transcript.segments.map((segment) => segment.startMs + segment.durationMs),
+  );
+  const previewEndMs = Math.min(MAX_PREVIEW_DURATION_MS, Math.max(1, totalDurationMs / 3));
+  const segments = transcript.segments.filter((segment) => segment.startMs < previewEndMs);
+
+  return {
+    ...transcript,
+    segments: segments.length > 0 ? segments : transcript.segments.slice(0, 1),
+  };
+}
 
 interface GeminiClientOptions {
   apiKey: string;
@@ -98,9 +115,39 @@ export class GeminiClient {
     input: ArticlePromptInput,
     signal?: AbortSignal,
   ): AsyncGenerator<string> {
-    const response = await this.request("streamGenerateContent?alt=sse", buildArticleRequest(input), signal);
-    if (!response.body) throw new GeminiResponseError("Gemini 未返回流式响应", 502);
-    yield* parseGeminiSse(response.body);
+    const previewTranscript = openingTranscript(input.transcript);
+    if (previewTranscript.segments.length === input.transcript.segments.length) {
+      const response = await this.request("streamGenerateContent?alt=sse", buildArticleRequest(input), signal);
+      if (!response.body) throw new GeminiResponseError("Gemini 未返回流式响应", 502);
+      yield* parseGeminiSse(response.body);
+      return;
+    }
+
+    const previewResponse = await this.request(
+      "streamGenerateContent?alt=sse",
+      buildArticlePreviewRequest(input, previewTranscript),
+      signal,
+    );
+    if (!previewResponse.body) throw new GeminiResponseError("Gemini 未返回开场流式响应", 502);
+
+    let openingArticle = "";
+    for await (const delta of parseGeminiSse(previewResponse.body)) {
+      openingArticle += delta;
+      yield delta;
+    }
+
+    const separator = openingArticle.endsWith("\n\n")
+      ? ""
+      : openingArticle.endsWith("\n") ? "\n" : "\n\n";
+    if (separator) yield separator;
+
+    const continuationResponse = await this.request(
+      "streamGenerateContent?alt=sse",
+      buildArticleContinuationRequest({ ...input, openingArticle }),
+      signal,
+    );
+    if (!continuationResponse.body) throw new GeminiResponseError("Gemini 未返回续写流式响应", 502);
+    yield* parseGeminiSse(continuationResponse.body);
   }
 
   async summarizeChapter(input: SummaryPromptInput): Promise<FiveWOneH> {

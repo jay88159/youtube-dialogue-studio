@@ -29,24 +29,21 @@ function watchPage(): string {
   })};</script>`;
 }
 
-function geminiStream(): Response {
+function geminiStream(chunks: string[]): Response {
   const encoder = new TextEncoder();
   return new Response(new ReadableStream({
     start(controller) {
-      controller.enqueue(encoder.encode(
-        'data: {"candidates":[{"content":{"parts":[{"text":"# AI 对话\\n\\n## 智能经济\\n\\n**Mark：** 收入增长。"}]}}]}\n\n',
-      ));
-      setTimeout(() => {
+      chunks.forEach((text, index) => setTimeout(() => {
         controller.enqueue(encoder.encode(
-          'data: {"candidates":[{"content":{"parts":[{"text":"\\n\\n## 成本曲线\\n\\n**主持人：** 成本如何下降？"}]}}]}\n\n',
+          `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] })}\n\n`,
         ));
-        controller.close();
-      }, 20);
+        if (index === chunks.length - 1) controller.close();
+      }, index * 20));
     },
   }), { headers: { "content-type": "text/event-stream" } });
 }
 
-function mockExternalRequests(summaryRequests: string[]): void {
+function mockExternalRequests(summaryRequests: string[], articleRequests: string[]): void {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -77,7 +74,12 @@ function mockExternalRequests(summaryRequests: string[]): void {
         ],
       });
     }
-    if (url.pathname.endsWith(":streamGenerateContent")) return geminiStream();
+    if (url.pathname.endsWith(":streamGenerateContent")) {
+      articleRequests.push(await request.text());
+      return articleRequests.length === 1
+        ? geminiStream(["# AI 对话\n\n## 智能经济\n\n**Mark：** 收入增长。"])
+        : geminiStream(["## 成本曲线\n\n**主持人：** 成本如何下降？"]);
+    }
     if (url.pathname.endsWith(":generateContent")) {
       summaryRequests.push(await request.text());
       return Response.json({
@@ -118,7 +120,8 @@ afterAll(async () => {
 describe("generation flow", () => {
   it("streams deltas, persists context, and summarizes with an empty client body", async () => {
     const summaryRequests: string[] = [];
-    mockExternalRequests(summaryRequests);
+    const articleRequests: string[] = [];
+    mockExternalRequests(summaryRequests, articleRequests);
 
     const response = await server.fetch("/api/generations", {
       method: "POST",
@@ -133,13 +136,20 @@ describe("generation flow", () => {
 
     const events: GenerationEvent[] = [];
     for await (const event of decodeNdjson(response.body!)) events.push(event);
-    expect(events.map((event) => event.type), JSON.stringify(events, null, 2)).toEqual([
+    expect(events.slice(0, 2).map((event) => event.type)).toEqual([
       "generation.created",
       "transcript.ready",
-      "article.delta",
-      "article.delta",
-      "article.completed",
     ]);
+    expect(events.at(-1)?.type).toBe("article.completed");
+    const articleDeltas = events.filter((event) => event.type === "article.delta");
+    expect(articleDeltas.length).toBeGreaterThanOrEqual(2);
+    expect(articleDeltas.map((event) => event.text).join(""))
+      .toContain("## 成本曲线");
+    expect(articleRequests).toHaveLength(2);
+    expect(articleRequests[0]).toContain("AI revenue is growing.");
+    expect(articleRequests[0]).not.toContain("Unit costs are falling.");
+    expect(articleRequests[1]).toContain("Unit costs are falling.");
+    expect(articleRequests[1]).toContain("## 智能经济");
 
     const generationId = (events[0] as Extract<GenerationEvent, { type: "generation.created" }>).generationId;
     const summary = await server.fetch(

@@ -63,8 +63,10 @@ invariant(deltas[0].elapsedMs < completed.elapsedMs, "first delta did not preced
 invariant(completed.event.chapters?.length >= 2, "article has fewer than two chapters");
 
 const article = deltas.map(({ event }) => event.text).join("");
+const h1Headings = [...article.matchAll(/^# (?!#)/gm)].length;
 const speakers = [...article.matchAll(/\*\*([^*：:]{1,30})[：:]\*\*|\*\*([^*]{1,30})\*\*[：:]/g)]
   .map((match) => match[1] ?? match[2]);
+invariant(h1Headings === 1, `article contains ${h1Headings} first-level headings`);
 
 const chapter = completed.event.chapters[0];
 const summaryResponse = await fetch(
@@ -87,7 +89,9 @@ console.log(
       baseUrl,
       transcriptSource: transcript.event.source,
       transcriptSegments: transcript.event.segmentCount,
+      transcriptReadyMs: transcript.elapsedMs,
       firstDeltaMs: deltas[0].elapsedMs,
+      transcriptToFirstDeltaMs: deltas[0].elapsedMs - transcript.elapsedMs,
       completedMs: completed.elapsedMs,
       deltaEvents: deltas.length,
       articleCharacters: article.length,
@@ -95,6 +99,7 @@ console.log(
       chapterTitles: completed.event.chapters.map((item) => item.title),
       speakers: [...new Set(speakers)],
       summaryFields: Object.keys(summary).length,
+      summaryWhen: summary.when,
     },
     null,
     2,

@@ -182,6 +182,54 @@ describe("GeminiClient", () => {
     expect(requests[0].headers.get("x-goog-api-key")).toBe("test-key");
   });
 
+  it("streams an opening window before asking Gemini to continue from the full transcript", async () => {
+    const requests: Request[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      requests.push(new Request(input, init));
+      const text = requests.length === 1
+        ? "# AI Outlook\n\n## 开场判断\n\n**嘉宾：** AI 仍处于早期。"
+        : "## 长期影响\n\n**嘉宾：** 未来十年将持续变化。";
+      return new Response(
+        `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    };
+    const client = new GeminiClient({ apiKey: "test-key", model: "gemini-test", fetcher });
+    const longTranscript: TranscriptDocument = {
+      ...transcript,
+      segments: [
+        { startMs: 0, durationMs: 2_000, text: "OPENING_MARKER: AI is early." },
+        { startMs: 240_000, durationMs: 2_000, text: "OPENING_DETAIL: Costs are falling." },
+        { startMs: 4_860_000, durationMs: 2_000, text: "CLOSING_MARKER: The next decade matters." },
+      ],
+    };
+
+    const iterator = client.streamArticle({ transcript: longTranscript });
+    const first = await iterator.next();
+    expect(first.value).toContain("开场判断");
+    expect(requests).toHaveLength(1);
+
+    const previewRequest = await requests[0].clone().json() as {
+      contents: Array<{ parts: Array<{ text: string }> }>;
+    };
+    const previewPrompt = previewRequest.contents[0].parts[0].text;
+    expect(previewPrompt).toContain("OPENING_MARKER");
+    expect(previewPrompt).toContain("OPENING_DETAIL");
+    expect(previewPrompt).not.toContain("CLOSING_MARKER");
+
+    const output = [first.value ?? ""];
+    for await (const delta of iterator) output.push(delta);
+    expect(requests).toHaveLength(2);
+
+    const continuationRequest = await requests[1].clone().json() as {
+      contents: Array<{ parts: Array<{ text: string }> }>;
+    };
+    const continuationPrompt = continuationRequest.contents[0].parts[0].text;
+    expect(continuationPrompt).toContain("CLOSING_MARKER");
+    expect(continuationPrompt).toContain("## 开场判断");
+    expect(output.join("")).toContain("## 长期影响");
+  });
+
   it("validates the structured 5W1H response", async () => {
     const fetcher: typeof fetch = async () => Response.json({
       candidates: [{

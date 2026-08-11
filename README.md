@@ -103,6 +103,8 @@ POST /v1beta/models/{model}:streamGenerateContent?alt=sse
 
 浏览器通过 Fetch 读取 `ReadableStream`，`decodeNdjson` 处理半行、粘包和 UTF-8 分块，`useGeneration` 每收到一个 `article.delta` 就追加正文，生成期间视口跟随流尾。这里没有把完整结果攒完再模拟打字；延迟分块浏览器测试会断言第一批正文在第二批和完成事件之前可见。
 
+为了降低长字幕的首字等待，主文章使用两阶段渐进生成。第一阶段只向 Gemini 提交视频开头 `min(5 分钟, 总时长 / 3)` 的字幕，立即流出一级标题和开场章节；读者开始阅读后，第二阶段再提交完整字幕和已展示的开场，只追加新的二级章节。相比按五分钟切成十几次请求，这个方案只增加一次模型调用，保留了全文续写所需的全局上下文，也避免每段各自生成标题和重复论点。短到首批已覆盖全部字幕时自动退化为原来的一次流式请求。
+
 主文章遵循 [主文章输出协议](docs/ARTICLE_OUTPUT_CONTRACT.md)：长视频默认生成 8–12 个章节、6000–10000 个中文字符，每章包含副标题和多轮问答，并覆盖视频开头、中段和结尾。完整示例文章只用于提炼协议，不整篇塞入 Prompt。
 
 选择 NDJSON 而不是 EventSource，是因为生成请求需要 POST JSON；选择 Fetch 而不是 WebSocket，是因为这是一次有限、单向、可取消的流。文章使用 Markdown 而非模型 HTML，React Markdown 默认不执行原始 HTML。
