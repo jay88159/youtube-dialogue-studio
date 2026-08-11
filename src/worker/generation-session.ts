@@ -53,6 +53,7 @@ interface StartInput {
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_TRANSCRIPT_BYTES = 500 * 1024;
 const MAX_ARTICLE_BYTES = 160 * 1024;
+const SUMMARY_CACHE_VERSION = "v2";
 const encoder = new TextEncoder();
 
 function byteLength(value: string): number {
@@ -210,7 +211,8 @@ export class GenerationSession extends DurableObject<AppEnv> {
 
   private async summarize(chapterId: string): Promise<Response> {
     try {
-      const cached = await this.ctx.storage.get(`summary:${chapterId}`);
+      const cacheKey = `summary:${SUMMARY_CACHE_VERSION}:${chapterId}`;
+      const cached = await this.ctx.storage.get(cacheKey);
       if (cached) return Response.json(cached);
 
       const [meta, transcript, chapters] = await Promise.all([
@@ -238,7 +240,7 @@ export class GenerationSession extends DurableObject<AppEnv> {
         chapterTitle: chapter.title,
         chapterMarkdown: chapter.markdown,
       });
-      await this.ctx.storage.put(`summary:${chapterId}`, summary);
+      await this.ctx.storage.put(cacheKey, summary);
       return Response.json(summary, { headers: { "cache-control": "private, max-age=86400" } });
     } catch (error) {
       const normalized = apiError(error);

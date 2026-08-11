@@ -82,4 +82,27 @@ describe("Gemini prompts", () => {
     });
     expect(request.generationConfig).not.toHaveProperty("temperature");
   });
+
+  it("defines When as the period discussed by the chapter instead of a recording date", () => {
+    const request = buildSummaryRequest({
+      transcript: {
+        ...transcript,
+        segments: [{
+          startMs: 62_000,
+          durationMs: 1_000,
+          text: "We are still early in AI commercialization, and the next decade will be transformative.",
+        }],
+      },
+      articleOutline: ["智能经济：收入爆发与成本塌陷"],
+      chapterTitle: "智能经济：收入爆发与成本塌陷",
+      chapterMarkdown: "## 智能经济：收入爆发与成本塌陷\n\nAI 仍处于商业化早期，未来十年将快速变化。",
+    });
+    const userText = request.contents[0].parts[0].text;
+    const whenDescription = request.generationConfig.responseFormat.text.schema.properties.when.description;
+
+    expect(whenDescription).toContain("发展阶段");
+    expect(whenDescription).toContain("不是对话录制日期");
+    expect(userText).toContain("当前 AI 商业化早期，以及未来十年");
+    expect(userText).toContain("没有具体年份");
+  });
 });
