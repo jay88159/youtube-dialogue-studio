@@ -14,6 +14,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts tests/integration",
     "test:e2e": "playwright test",
     "test:smoke": "node scripts/smoke-production.mjs",
+    "fixture:update": "node scripts/update-reference-transcript.mjs",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm test:e2e && pnpm build"
   },
   "engines": {
@@ -27,6 +28,7 @@
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "youtube-caption-extractor": "1.10.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {

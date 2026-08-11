@@ -7,22 +7,20 @@
 
 ## 1. 本地与 CI
 
-`pnpm check` 覆盖 ESLint、TypeScript strict、37 个单元测试、2 个 workerd + Durable Object 集成测试、6 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
+`pnpm check` 覆盖 ESLint、TypeScript strict、40 个单元测试、2 个 workerd + Durable Object 集成测试、9 个 Chromium 多视口端到端测试和 Cloudflare 生产构建。
 
 公开仓库的 GitHub Actions 使用相同的 `pnpm check`；CI 不注入任何 Secret。
 
 ## 2. 真实 Gemini 流式输出
 
-对参考视频发起生产请求，记录到以下事件时序：
+版本 `68e8cfa2-ea65-4039-9963-ef9a2f19335d` 部署后，在不提供额外生成要求的情况下对参考视频发起生产请求：
 
 | 事件 | 相对请求时间 |
 | --- | ---: |
-| `generation.created` | 1.65 s |
-| `transcript.ready` | 2.31 s |
-| 第一个 `article.delta` | 3.65 s |
-| `article.completed` | 7.37 s |
+| 第一个 `article.delta` | 4.12 s |
+| `article.completed` | 55.09 s |
 
-一次请求共收到 38 个 `article.delta`，且第一个增量比完成事件早 3.72 秒抵达。这是 HTTP 响应到达时序，不是前端把完整文章拆开后的打字动画。
+请求从 YouTube 字幕轨道取得 2801 个时间片段，共收到 230 个 `article.delta`，生成 9502 个正文字符和 11 个章节；首个增量比完成事件早约 51 秒抵达。这是 HTTP 响应到达时序，不是前端把完整文章拆开后的打字动画。章节覆盖技术史、商业化、芯片、中美竞争、监管、定价、模型生态、风投与社会影响，达到参考长篇编辑稿的结构目标。
 
 ## 3. 自然语言要求
 
@@ -42,9 +40,10 @@
 
 在公开网址上用 Chromium 完成了“填入示例 → 生成 → 等待文章 → 展开章节 5W1H”的真实路径，确认：
 
-- 页面显示“演示字幕”来源，不把 Fixture 冒充实时字幕；
-- 文章出现 3 个章节，正文按 Markdown 渲染；
+- 实时路径成功时显示“YouTube 实时字幕”；实时路径波动时显示“演示字幕”，并使用同一字幕轨道的 2801 段完整快照；
+- 文章出现 11 个章节和 8523 个正文字符，正文按 Markdown 渲染；
 - 章节按钮返回 6 个非空字段；
+- 生成过程中记录到 146 次正文长度变化，视口从 `scrollY = 0` 自动跟随到 6520；
 - 桌面、平板深色模式、390 px 移动视口均无横向溢出。
 
 ![公开生产环境的完整生成与 5W1H 结果](images/product-workspace.png)
@@ -58,7 +57,7 @@ pnpm test:smoke
 BASE_URL=https://example.workers.dev pnpm test:smoke
 ```
 
-脚本只输出事件数量与耗时，不输出文章、提示词或 Secret。每次执行会真实消耗 Gemini 免费额度，因此不属于默认 `pnpm check`。
+脚本只输出事件数量、耗时、文章字符数、章节标题和说话人标签，不输出正文、提示词或 Secret。每次执行会真实消耗 Gemini 免费额度，因此不属于默认 `pnpm check`。
 
 ## 7. YouTube 验证码与代理复盘
 
@@ -102,3 +101,17 @@ BASE_URL=https://example.workers.dev pnpm test:smoke
 部署后用真实 Chromium 访问公开地址并生成参考视频：9 秒完成，页面进入“阅读模式”，出现 3 个章节、演示字幕来源和 6 个非空 5W1H 字段；视口宽度 1440 px 时没有横向溢出，浏览器控制台没有错误。README 截图来自这次公开生产请求，不是 mock 页面。
 
 重设计没有新增运行时依赖。生产构建中，客户端 JavaScript 从 402.00 kB / gzip 121.47 kB 降至 391.38 kB / gzip 119.02 kB，CSS 从 12.62 kB / gzip 3.76 kB 降至 12.40 kB / gzip 3.46 kB，主要来自删除不必要的装饰图标与旧样式。
+
+## 10. 原始字幕与长篇文章协议升级
+
+原实现维护了一套 watch-page 解析器，参考 Fixture 只有 30 个中文摘要片段且在约 67 分钟处结束，无法支撑给定的完整长篇文章。升级后：
+
+- 使用 `youtube-caption-extractor@1.10.2` 的 iOS、Android VR、MWEB InnerTube 客户端策略；
+- 项目通过 fetch-compatible 传输层注入 Worker Fetch 或 Webshare SOCKS5 TCP Socket；
+- 参考 Fixture 由 `pnpm fixture:update` 从同一 YouTube 字幕轨道生成，包含 2801 个英文时间片段，结束时间为 4865.159 秒；
+- 主文章协议按视频时长设置章节与篇幅目标，81 分钟参考视频默认为 8–12 章、6000–10000 个中文字符；
+- 模板只被提炼为结构规则，不把 2 万余字参考正文塞进请求。
+
+生产环境连续验证得到两种合法来源：一次实时直连返回 `source = direct / 2801 segments`；另一次直连波动后返回 `source = fixture / 2801 segments`。两次均形成完整长文。无额外要求的代表性结果为 9502 字符、11 章、230 个正文增量；第一章随后以空请求体生成 6 个非空 5W1H 字段。
+
+最终部署版本 `12da6497-f250-48c9-80a4-1ad395c70ac1` 再次以空额外要求运行生产 smoke：完整快照路径返回 2801 段字幕，第一个正文增量在 20.95 秒到达，80.31 秒完成，共 260 个增量、10497 个正文字符和 10 个主题章节；随后首章 5W1H 返回 6 个非空字段。该次耗时包含实时字幕尝试失败后切换完整快照的时间，前端仍在完成事件前约 59 秒开始呈现正文。

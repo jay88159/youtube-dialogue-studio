@@ -1,5 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -91,6 +91,14 @@ function Chapter({
 }
 
 export function ArticleReader({ article, completed, generationId }: ArticleReaderProps) {
+  const streamTail = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (article && !completed) {
+      streamTail.current?.scrollIntoView?.({ block: "end" });
+    }
+  }, [article, completed]);
+
   if (!article) {
     return (
       <div className="empty-article">
@@ -111,6 +119,7 @@ export function ArticleReader({ article, completed, generationId }: ArticleReade
       <div className="markdown-body streaming-markdown">
         <ReactMarkdown remarkPlugins={markdownPlugins}>{article}</ReactMarkdown>
         <span className="stream-caret" aria-hidden="true" />
+        <span ref={streamTail} aria-hidden="true" />
       </div>
     );
   }

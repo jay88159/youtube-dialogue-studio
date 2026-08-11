@@ -50,7 +50,7 @@ export function SourceStatus({ phase, source, segmentCount }: SourceStatusProps)
         </div>
       )}
       {source === "fixture" && (
-        <p className="fixture-note">实时字幕不可用，当前使用内置校订字幕，结果仅用于演示。</p>
+        <p className="fixture-note">实时字幕不可用，当前使用内置完整字幕快照，结果仅用于演示。</p>
       )}
       {source === "gemini" && (
         <p className="fixture-note">实时字幕不可用，当前由 Gemini 从公开视频提取；这不是 YouTube 原始字幕，可能存在转录误差。</p>

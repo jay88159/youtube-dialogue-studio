@@ -39,6 +39,27 @@ describe("Gemini prompts", () => {
     expect(request.generationConfig).not.toHaveProperty("temperature");
   });
 
+  it("asks long videos for a comprehensive chaptered dialogue instead of a short summary", () => {
+    const request = buildArticleRequest({
+      transcript: {
+        ...transcript,
+        segments: [
+          { startMs: 0, durationMs: 1_000, text: "Opening" },
+          { startMs: 4_860_000, durationMs: 5_000, text: "Closing" },
+        ],
+      },
+    });
+    const systemText = request.systemInstruction.parts[0].text;
+    const userText = request.contents[0].parts[0].text;
+
+    expect(systemText).toContain("长篇编辑稿");
+    expect(systemText).toContain("保留真实说话人姓名");
+    expect(systemText).toContain("章节副标题");
+    expect(userText).toContain("视频时长约 81 分钟");
+    expect(userText).toContain("8 至 12 个二级章节");
+    expect(userText).toContain("6000 至 10000 个中文字符");
+  });
+
   it("requests a fixed six-field JSON schema for 5W1H", () => {
     const request = buildSummaryRequest({
       transcript,

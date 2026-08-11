@@ -70,6 +70,58 @@ test("generates an article and opens a chapter summary", async ({ page }) => {
   expect(pageWidth.scrollWidth).toBeLessThanOrEqual(pageWidth.clientWidth);
 });
 
+test("renders delayed production chunks and keeps the latest text visible", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalFetch = window.fetch.bind(window);
+    const encoder = new TextEncoder();
+    const line = (event: unknown) => encoder.encode(`${JSON.stringify(event)}\n`);
+
+    window.fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.endsWith("/api/generations")) return originalFetch(input, init);
+
+      return new Response(new ReadableStream({
+        async start(controller) {
+          controller.enqueue(line({
+            type: "generation.created",
+            generationId: "955a4b5b-6add-4d23-8cba-bb6b4ec247ae",
+          }));
+          controller.enqueue(line({ type: "transcript.ready", source: "fixture", segmentCount: 2801 }));
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          controller.enqueue(line({
+            type: "article.delta",
+            text: `# 长篇访谈\n\n## 第一章\n\n${"**Mark：** 第一批实时正文。\n\n".repeat(80)}`,
+          }));
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          controller.enqueue(line({
+            type: "article.delta",
+            text: "## 第二章\n\n**Jen：** 第二批正文随后到达。",
+          }));
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          controller.enqueue(line({
+            type: "article.completed",
+            chapters: [
+              { id: "chapter-1", title: "第一章" },
+              { id: "chapter-2", title: "第二章" },
+            ],
+          }));
+          controller.close();
+        },
+      }), { headers: { "content-type": "application/x-ndjson" } });
+    };
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "使用示例" }).click();
+  await page.getByRole("button", { name: "生成对话文章" }).click();
+
+  await expect(page.locator(".streaming-markdown")).toContainText("第一批实时正文。");
+  await expect(page.locator(".streaming-markdown")).not.toContainText("第二批正文随后到达。");
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await expect(page.getByText("第二批正文随后到达。")).toBeVisible();
+  await expect(page.locator(".reader-state")).toHaveText("阅读模式");
+});
+
 test("shows inline validation for a non-YouTube URL", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("YouTube 视频链接").fill("https://example.com/video");

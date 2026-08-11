@@ -51,6 +51,21 @@ function mockExternalRequests(summaryRequests: string[]): void {
     const request = new Request(input, init);
     const url = new URL(request.url);
 
+    if (url.origin === "https://youtubei.googleapis.com" && url.pathname === "/youtubei/v1/player") {
+      return Response.json({
+        playabilityStatus: { status: "OK" },
+        videoDetails: { title: "AI Outlook", shortDescription: "AI interview" },
+        captions: {
+          playerCaptionsTracklistRenderer: {
+            captionTracks: [{
+              baseUrl: `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en`,
+              languageCode: "en",
+              vssId: ".en",
+            }],
+          },
+        },
+      });
+    }
     if (url.origin === "https://www.youtube.com" && url.pathname === "/watch") {
       return new Response(watchPage(), { headers: { "content-type": "text/html" } });
     }

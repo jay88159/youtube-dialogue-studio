@@ -39,7 +39,7 @@
 ### Task 2: 字幕领域
 
 **Files:**
-- Create: `src/worker/transcript/types.ts`, `normalizer.ts`, `youtube.ts`, `resolver.ts`, `fetch-transport.ts`, `tcp-proxy-transport.ts`
+- Create: `src/worker/transcript/types.ts`, `youtube.ts`, `resolver.ts`, `fetch-transport.ts`, `tcp-proxy-transport.ts`
 - Create: `fixtures/xRh2sVcNXQ8.json`
 - Test: `tests/unit/transcript/*.test.ts`
 

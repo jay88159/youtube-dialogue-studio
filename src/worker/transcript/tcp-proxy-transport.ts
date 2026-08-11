@@ -41,13 +41,28 @@ async function readAll(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
 export class TcpProxyTransport implements HttpTransport {
   constructor(private readonly proxy: ProxyConfiguration) {}
 
-  async get(input: string): Promise<Response> {
-    return this.request(input, 0);
+  async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const request = new Request(input, init);
+    const body = request.method === "GET" || request.method === "HEAD"
+      ? new Uint8Array()
+      : new Uint8Array(await request.arrayBuffer());
+    return this.request(
+      new URL(request.url),
+      request.method,
+      request.headers,
+      body,
+      0,
+    );
   }
 
-  private async request(input: string, redirectCount: number): Promise<Response> {
+  private async request(
+    url: URL,
+    method: string,
+    inputHeaders: Headers,
+    body: Uint8Array,
+    redirectCount: number,
+  ): Promise<Response> {
     if (redirectCount > 3) throw new Error("代理请求重定向次数过多");
-    const url = new URL(input);
     if (url.protocol !== "https:") throw new Error("代理传输只允许 HTTPS");
 
     const socket = connect(
@@ -76,18 +91,25 @@ export class TcpProxyTransport implements HttpTransport {
     await secureSocket.opened;
     const writer = secureSocket.writable.getWriter();
     const path = `${url.pathname}${url.search}`;
-    const request = [
-      `GET ${path || "/"} HTTP/1.1`,
+    const headers = new Headers(inputHeaders);
+    headers.delete("host");
+    headers.delete("connection");
+    headers.set("accept-encoding", "identity");
+    headers.set("connection", "close");
+    if (!headers.has("accept")) headers.set("accept", "*/*");
+    if (!headers.has("accept-language")) headers.set("accept-language", "en-US,en;q=0.9,zh-CN;q=0.8");
+    if (!headers.has("user-agent")) headers.set("user-agent", "Mozilla/5.0 (compatible; VideoArticle/1.0)");
+    if (body.length > 0 || method === "POST") headers.set("content-length", String(body.length));
+
+    const requestHead = [
+      `${method} ${path || "/"} HTTP/1.1`,
       `Host: ${url.host}`,
-      "Accept: */*",
-      "Accept-Encoding: identity",
-      "Accept-Language: en-US,en;q=0.9,zh-CN;q=0.8",
-      "User-Agent: Mozilla/5.0 (compatible; VideoArticle/1.0)",
-      "Connection: close",
+      ...[...headers].map(([name, value]) => `${name}: ${value}`),
       "",
       "",
     ].join("\r\n");
-    await writer.write(new TextEncoder().encode(request));
+    await writer.write(new TextEncoder().encode(requestHead));
+    if (body.length > 0) await writer.write(body);
     writer.releaseLock();
 
     const raw = await readAll(secureSocket.readable as ReadableStream<Uint8Array>);
@@ -95,7 +117,20 @@ export class TcpProxyTransport implements HttpTransport {
     const parsed = parseRawHttpResponse(raw);
     const location = parsed.headers.get("location");
     if (location && parsed.status >= 300 && parsed.status < 400) {
-      return this.request(new URL(location, url).toString(), redirectCount + 1);
+      const switchToGet = parsed.status === 303
+        || ((parsed.status === 301 || parsed.status === 302) && method === "POST");
+      const nextHeaders = new Headers(inputHeaders);
+      if (switchToGet) {
+        nextHeaders.delete("content-length");
+        nextHeaders.delete("content-type");
+      }
+      return this.request(
+        new URL(location, url),
+        switchToGet ? "GET" : method,
+        nextHeaders,
+        switchToGet ? new Uint8Array() : body,
+        redirectCount + 1,
+      );
     }
 
     parsed.headers.delete("content-length");

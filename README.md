@@ -9,9 +9,9 @@
 
 ## 产品能力
 
-- 输入 YouTube 链接，自动解析字幕轨道；仅允许固定的 YouTube 域名，避免 SSRF。
+- 输入 YouTube 链接，通过 `youtube-caption-extractor` 的 InnerTube 多客户端策略提取带时间戳字幕；仅允许固定的 YouTube 域名，避免 SSRF。
 - 自然语言要求可控制任务类型、输出风格、目标受众和表达约束。
-- 文章通过 POST 响应中的 NDJSON 逐段抵达，生成未结束时正文已经可读。
+- 文章通过 POST 响应中的 NDJSON 持续抵达，生成未结束时正文已经可读，页面会跟随最新输出位置。
 - 每个二级章节都有 5W1H 操作，固定渲染 Who、What、When、Where、Why、How。
 - 5W1H 的浏览器请求没有请求体；完整字幕、文章结构与章节正文从 Durable Object 读取。
 - YouTube 直连失败时可经 Webshare SOCKS5 代理重试；参考视频另有明确标记的内置字幕，保证演示可复现。
@@ -44,7 +44,7 @@ flowchart LR
     Browser["React 页面"] -->|"POST + NDJSON"| API["Hono Worker"]
     API --> Session["每次生成一个 Durable Object"]
     Session --> Resolver["字幕 Resolver"]
-    Resolver --> Direct["YouTube Fetch"]
+    Resolver --> Direct["youtube-caption-extractor"]
     Resolver --> Proxy["Webshare SOCKS5 over TCP"]
     Resolver --> Fixture["参考字幕 Fixture"]
     Resolver --> Video["Gemini YouTube URL 转录"]
@@ -63,14 +63,13 @@ flowchart LR
 
 字幕链路被拆成“传输”和“语义解析”两层：
 
-1. `FetchTransport` 请求由代码构造的 YouTube watch URL。
-2. `YouTubeTranscriptProvider` 从 `ytInitialPlayerResponse` 读取 caption track，优先人工字幕，再选自动字幕；随后请求 JSON3 timedtext 并规范化时间段与文本。
-3. 如果 watch 页面出现 `LOGIN_REQUIRED`、验证页面、403、429 或网络问题，并且配置了 Webshare，则 `TcpProxyTransport` 使用 Cloudflare `connect()` 建立 TCP，完成 SOCKS5 用户名密码认证和目标隧道握手，再通过 `startTls()` 访问 YouTube。
-4. 如果实时链路仍失败且视频 ID 是参考视频，Resolver 使用版本化字幕 Fixture。
-5. 其他公开视频由 Gemini YouTube URL 能力提取覆盖全片的结构化内容地图，来源标记为「AI 视频转录」。标准请求限制为 96 个片段、每段 240 字；若响应达到 token 上限或 JSON 被截断，服务端会自动改用 48 个片段、每段 180 字的紧凑 Schema 重试一次。模型偶尔会忽略 Schema 的长度提示，因此服务端还会确定性截断超长文本，并在片段过多时等距保留首尾内容。它不是 YouTube 原始字幕，页面会提示可能存在转录误差。
-6. 私有、未列出、超出免费限制或无法处理的视频返回明确错误，不伪装成成功。
+1. `YouTubeTranscriptProvider` 使用 `youtube-caption-extractor`，依次尝试 iOS、Android VR 和 MWEB InnerTube 客户端，选择人工字幕、自动字幕或首个可用字幕轨道，并读取 JSON3 时间片段。
+2. 库的自定义 `fetch` 由项目传输层注入。直连使用 Worker Fetch；出现 `LOGIN_REQUIRED`、403、429 或网络问题且配置了 Webshare 时，`TcpProxyTransport` 使用 Cloudflare `connect()` 建立 SOCKS5 隧道，再通过 `startTls()` 转发 InnerTube POST 和字幕 GET。
+3. 如果实时链路仍失败且视频 ID 是参考视频，Resolver 使用版本化完整字幕 Fixture。
+4. 其他公开视频由 Gemini YouTube URL 能力提取覆盖全片的结构化内容地图，来源标记为「AI 视频转录」。标准请求限制为 96 个片段、每段 240 字；若响应达到 token 上限或 JSON 被截断，服务端会自动改用 48 个片段、每段 180 字的紧凑 Schema 重试一次。模型偶尔会忽略 Schema 的长度提示，因此服务端还会确定性截断超长文本，并在片段过多时等距保留首尾内容。它不是 YouTube 原始字幕，页面会提示可能存在转录误差。
+5. 私有、未列出、超出免费限制或无法处理的视频返回明确错误，不伪装成成功。
 
-Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它是根据参考视频公开内容校订的演示输入，不冒充实时提取结果。
+Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它由 `pnpm fixture:update` 使用同一字幕库从参考视频字幕轨道生成，包含 2801 个英文时间片段并覆盖约 81 分钟；它是版本化快照，不冒充本次实时提取结果。
 
 相关实现：
 
@@ -80,6 +79,7 @@ Fixture 带有来源说明，页面会显示黄色「演示字幕」标记。它
 - `src/worker/transcript/socks5.ts`
 - `src/worker/gemini/video-transcript.ts`
 - `fixtures/xRh2sVcNXQ8.json`
+- `scripts/update-reference-transcript.mjs`
 
 Cloudflare Worker 的 `fetch` 没有通用 `proxy` 参数，因此代理路径直接使用官方 [TCP Sockets API](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/)。
 
@@ -101,7 +101,9 @@ POST /v1beta/models/{model}:streamGenerateContent?alt=sse
 {"type":"article.delta","text":"本次新生成的 Markdown"}
 ```
 
-浏览器通过 Fetch 读取 `ReadableStream`，`decodeNdjson` 处理半行、粘包和 UTF-8 分块，`useGeneration` 每收到一个 `article.delta` 就追加正文。这里没有把完整结果攒完再模拟打字；集成测试会断言 delta 事件严格先于 completed 事件。
+浏览器通过 Fetch 读取 `ReadableStream`，`decodeNdjson` 处理半行、粘包和 UTF-8 分块，`useGeneration` 每收到一个 `article.delta` 就追加正文，生成期间视口跟随流尾。这里没有把完整结果攒完再模拟打字；延迟分块浏览器测试会断言第一批正文在第二批和完成事件之前可见。
+
+主文章遵循 [主文章输出协议](docs/ARTICLE_OUTPUT_CONTRACT.md)：长视频默认生成 8–12 个章节、6000–10000 个中文字符，每章包含副标题和多轮问答，并覆盖视频开头、中段和结尾。完整示例文章只用于提炼协议，不整篇塞入 Prompt。
 
 选择 NDJSON 而不是 EventSource，是因为生成请求需要 POST JSON；选择 Fetch 而不是 WebSocket，是因为这是一次有限、单向、可取消的流。文章使用 Markdown 而非模型 HTML，React Markdown 默认不执行原始 HTML。
 
@@ -167,7 +169,7 @@ pnpm test:integration  # workerd + Durable Object 集成测试
 pnpm test:e2e          # Chromium 桌面与移动端完整交互
 pnpm test:smoke        # 真实生产 Gemini + 5W1H（消耗免费额度）
 pnpm build             # Cloudflare Vite 生产构建
-pnpm check             # 依次执行以上全部检查
+pnpm check             # 除真实外部 smoke 外的确定性检查
 ```
 
 测试分层：
@@ -176,7 +178,7 @@ pnpm check             # 依次执行以上全部检查
 | --- | --- |
 | Unit | URL 白名单、字幕轨道、验证码识别、SOCKS5 任意分块握手、AI 转录 Schema、SSE/NDJSON 任意分块、提示词边界、结构化输出、React 增量渲染 |
 | Integration | Worker 路由、真实 Durable Object 存储、delta 早于 completed、空请求体 5W1H、服务端上下文 |
-| E2E | 桌面和移动页面的提交、来源标记、文章排版、章节按钮、固定六字段与输入校验 |
+| E2E | 桌面和移动页面的提交、来源标记、延迟分块可见与流尾跟随、文章排版、章节按钮、固定六字段与输入校验 |
 
 外部网络不会进入公开 CI。实时 Gemini 与 YouTube 只做部署后的 smoke test，避免第三方验证码和免费配额让单元测试随机失败。
 
@@ -218,6 +220,7 @@ tests/integration       workerd 内的 Worker 集成测试
 tests/e2e               Chromium 桌面与移动用户路径
 docs/ARCHITECTURE.md     架构、状态机、安全与取舍
 docs/FRONTEND_DESIGN.md  编辑工作台的视觉审计与设计系统
+docs/ARTICLE_OUTPUT_CONTRACT.md 主文章结构、规模与参考视频验收协议
 docs/IMPLEMENTATION_PLAN.md 两天任务拆解与完成证据
 docs/VERIFICATION.md     真实 Gemini、生产流式与浏览器证据
 CLAUDE.md                仓库级 AI coding 约束

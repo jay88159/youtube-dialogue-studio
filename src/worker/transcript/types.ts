@@ -23,7 +23,7 @@ export interface ResolvedTranscript {
 }
 
 export interface HttpTransport {
-  get(url: string): Promise<Response>;
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
 export interface TranscriptProvider {
